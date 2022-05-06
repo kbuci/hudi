@@ -51,6 +51,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -111,6 +112,7 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
   protected long insertRecordsWritten = 0;
   protected boolean useWriterSchemaForCompaction;
   protected Option<BaseKeyGenerator> keyGeneratorOpt;
+  protected Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption;
   private HoodieBaseFile baseFileToMerge;
 
   public HoodieMergeHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
@@ -126,7 +128,11 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
     super(config, instantTime, partitionPath, fileId, hoodieTable, taskContextSupplier);
     init(fileId, recordItr);
     init(fileId, partitionPath, baseFile);
-    validateAndSetAndKeyGenProps(keyGeneratorOpt, config.populateMetaFields());
+    if(hoodieTable.getHoodieVirtualFieldInfo().isRecordKeyVirtual()){
+      validateAndSetAndKeyGenProps(keyGeneratorOpt, config.populateMetaFields(), Option.of(hoodieTable.getHoodieVirtualFieldInfo()));
+    } else {
+      validateAndSetAndKeyGenProps(keyGeneratorOpt, config.populateMetaFields(), Option.empty());
+    }
   }
 
   /**
@@ -140,12 +146,18 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
     this.useWriterSchemaForCompaction = true;
     this.preserveMetadata = config.isPreserveHoodieCommitMetadataForCompaction();
     init(fileId, this.partitionPath, dataFileToBeMerged);
-    validateAndSetAndKeyGenProps(keyGeneratorOpt, config.populateMetaFields());
+    if(hoodieTable.getHoodieVirtualFieldInfo().isRecordKeyVirtual()){
+      validateAndSetAndKeyGenProps(keyGeneratorOpt, config.populateMetaFields(), Option.of(hoodieTable.getHoodieVirtualFieldInfo()));
+    } else {
+      validateAndSetAndKeyGenProps(keyGeneratorOpt, config.populateMetaFields(), Option.empty());
+    }
   }
 
-  private void validateAndSetAndKeyGenProps(Option<BaseKeyGenerator> keyGeneratorOpt, boolean populateMetaFields) {
+  private void validateAndSetAndKeyGenProps(Option<BaseKeyGenerator> keyGeneratorOpt, boolean populateMetaFields,
+      Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption ) {
     ValidationUtils.checkArgument(populateMetaFields == !keyGeneratorOpt.isPresent());
     this.keyGeneratorOpt = keyGeneratorOpt;
+    this.hoodieVirtualFieldInfoOption = hoodieVirtualFieldInfoOption;
   }
 
   @Override
@@ -247,6 +259,7 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
         record.seal();
       }
       // NOTE: Once Records are added to map (spillable-map), DO NOT change it as they won't persist
+      // virtual Keys should have already been materialized here??
       keyToNewRecords.put(record.getRecordKey(), record);
     }
     LOG.info("Number of entries in MemoryBasedMap => "
@@ -318,7 +331,12 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
    * Go through an old record. Here if we detect a newer version shows up, we write the new one to the file.
    */
   public void write(GenericRecord oldRecord) {
-    String key = KeyGenUtils.getRecordKeyFromGenericRecord(oldRecord, keyGeneratorOpt);
+    String key;
+    if (hoodieVirtualFieldInfoOption.isPresent()){
+      key = hoodieVirtualFieldInfoOption.get().getRecordKey(oldRecord);
+    } else {
+      key = KeyGenUtils.getRecordKeyFromGenericRecord(oldRecord, keyGeneratorOpt);
+    }
     boolean copyOldRecord = true;
     if (keyToNewRecords.containsKey(key)) {
       // If we have duplicate records that we are updating, then the hoodie record will be deflated after

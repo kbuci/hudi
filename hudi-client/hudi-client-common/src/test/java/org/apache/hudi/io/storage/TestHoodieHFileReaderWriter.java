@@ -40,6 +40,12 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.junit.jupiter.api.Test;
+import org.apache.hadoop.hbase.util.Pair;
+import org.apache.hudi.common.table.HoodieTableConfig;
+import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -104,7 +110,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     when(partitionSupplier.get()).thenReturn(10);
 
     return HoodieFileWriterFactory.newHFileFileWriter(
-        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier);
+        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier, new HoodieVirtualFieldInfo(new HoodieTableConfig()));
   }
 
   @Override

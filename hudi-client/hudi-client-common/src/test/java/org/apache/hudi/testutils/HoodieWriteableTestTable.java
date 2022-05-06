@@ -50,6 +50,7 @@ import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.orc.CompressionKind;
@@ -73,6 +74,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
   protected final Schema schema;
   protected final BloomFilter filter;
   protected final boolean populateMetaFields;
+  private final HoodieVirtualFieldInfo hoodieVirtualFieldInfo;
 
   protected HoodieWriteableTestTable(String basePath, FileSystem fs, HoodieTableMetaClient metaClient,
                                      Schema schema, BloomFilter filter) {
@@ -85,6 +87,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
     this.schema = schema;
     this.filter = filter;
     this.populateMetaFields = metaClient.getTableConfig().populateMetaFields();
+    this.hoodieVirtualFieldInfo = new HoodieVirtualFieldInfo(metaClient.getTableConfig());
   }
 
   @Override
@@ -116,7 +119,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
       try (HoodieParquetWriter writer = new HoodieParquetWriter(
           currentInstantTime,
           new Path(Paths.get(basePath, partition, fileName).toString()),
-          config, schema, contextSupplier, populateMetaFields)) {
+          config, schema, contextSupplier, populateMetaFields, hoodieVirtualFieldInfo)) {
         int seqId = 1;
         for (HoodieRecord record : records) {
           GenericRecord avroRecord = (GenericRecord) ((HoodieRecordPayload) record.getData()).getInsertValue(schema).get();
@@ -139,7 +142,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
       try (HoodieOrcWriter writer = new HoodieOrcWriter(
           currentInstantTime,
           new Path(Paths.get(basePath, partition, fileName).toString()),
-          config, schema, contextSupplier)) {
+          config, schema, contextSupplier, hoodieVirtualFieldInfo)) {
         int seqId = 1;
         for (HoodieRecord record : records) {
           GenericRecord avroRecord = (GenericRecord) ((HoodieRecordPayload) record.getData()).getInsertValue(schema).get();

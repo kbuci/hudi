@@ -47,6 +47,8 @@ import static org.apache.hudi.avro.HoodieAvroWriteSupport.HOODIE_AVRO_BLOOM_FILT
 import static org.apache.hudi.avro.HoodieAvroWriteSupport.HOODIE_BLOOM_FILTER_TYPE_CODE;
 import static org.apache.hudi.avro.HoodieAvroWriteSupport.HOODIE_MAX_RECORD_KEY_FOOTER;
 import static org.apache.hudi.avro.HoodieAvroWriteSupport.HOODIE_MIN_RECORD_KEY_FOOTER;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
 
 public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRecord>
     implements HoodieFileWriter<R>, Closeable {
@@ -67,9 +69,10 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
   private HoodieOrcConfig orcConfig;
   private String minRecordKey;
   private String maxRecordKey;
+  private final HoodieVirtualFieldInfo hoodieVirtualFieldInfo;
 
   public HoodieOrcWriter(String instantTime, Path file, HoodieOrcConfig config, Schema schema,
-      TaskContextSupplier taskContextSupplier) throws IOException {
+      TaskContextSupplier taskContextSupplier, HoodieVirtualFieldInfo hoodieVirtualFieldInfo) throws IOException {
 
     Configuration conf = FSUtils.registerFileSystem(file, config.getHadoopConf());
     this.file = HoodieWrapperFileSystem.convertToHoodiePath(file, conf);
@@ -92,12 +95,13 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
         .setSchema(orcSchema);
     this.writer = OrcFile.createWriter(this.file, writerOptions);
     this.orcConfig = config;
+    this.hoodieVirtualFieldInfo = hoodieVirtualFieldInfo;
   }
 
   @Override
   public void writeAvroWithMetadata(HoodieKey key, R avroRecord) throws IOException {
     prepRecordWithMetadata(key, avroRecord, instantTime,
-        taskContextSupplier.getPartitionIdSupplier().get(), RECORD_INDEX, file.getName());
+        taskContextSupplier.getPartitionIdSupplier().get(), RECORD_INDEX, file.getName(), Option.of(hoodieVirtualFieldInfo));
     writeAvro(key.getRecordKey(), avroRecord);
   }
 
@@ -108,6 +112,9 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
 
   @Override
   public void writeAvro(String recordKey, IndexedRecord object) throws IOException {
+    // I don't think virtual field logic is needed here
+    // (due to keys not needing to be computed and that keys aren't being written to data files)
+    // but not sure
     for (int col = 0; col < batch.numCols; col++) {
       ColumnVector colVector = batch.cols[col];
       final String thisField = fieldNames.get(col);

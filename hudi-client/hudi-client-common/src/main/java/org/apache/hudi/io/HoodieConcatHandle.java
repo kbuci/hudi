@@ -95,7 +95,13 @@ public class HoodieConcatHandle<T extends HoodieRecordPayload, I, K, O> extends 
    */
   @Override
   public void write(GenericRecord oldRecord) {
-    String key = KeyGenUtils.getRecordKeyFromGenericRecord(oldRecord, keyGeneratorOpt);
+    String key;
+    // We might be able to just move this to catch statement
+    if (hoodieVirtualFieldInfoOption.isPresent()){
+      key = hoodieVirtualFieldInfoOption.get().getRecordKey(oldRecord);
+    } else {
+      key = KeyGenUtils.getRecordKeyFromGenericRecord(oldRecord, keyGeneratorOpt);
+    }
     try {
       // NOTE: We're enforcing preservation of the record metadata to keep existing semantic
       writeToFile(new HoodieKey(key, partitionPath), oldRecord, true);

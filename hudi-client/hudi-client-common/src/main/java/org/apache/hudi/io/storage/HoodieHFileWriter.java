@@ -44,6 +44,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
 
 /**
  * HoodieHFileWriter writes IndexedRecords into an HFile. The record's key is used as the key and the
@@ -69,12 +70,13 @@ public class HoodieHFileWriter<T extends HoodieRecordPayload, R extends IndexedR
   private HFile.Writer writer;
   private String minRecordKey;
   private String maxRecordKey;
+  private final HoodieVirtualFieldInfo hoodieVirtualFieldInfo;
 
   // This is private in CacheConfig so have been copied here.
   private static String DROP_BEHIND_CACHE_COMPACTION_KEY = "hbase.hfile.drop.behind.compaction";
 
   public HoodieHFileWriter(String instantTime, Path file, HoodieHFileConfig hfileConfig, Schema schema,
-                           TaskContextSupplier taskContextSupplier, boolean populateMetaFields) throws IOException {
+                           TaskContextSupplier taskContextSupplier, boolean populateMetaFields, HoodieVirtualFieldInfo hoodieVirtualFieldInfo) throws IOException {
 
     Configuration conf = FSUtils.registerFileSystem(file, hfileConfig.getHadoopConf());
     this.file = HoodieWrapperFileSystem.convertToHoodiePath(file, conf);
@@ -91,6 +93,7 @@ public class HoodieHFileWriter<T extends HoodieRecordPayload, R extends IndexedR
     this.instantTime = instantTime;
     this.taskContextSupplier = taskContextSupplier;
     this.populateMetaFields = populateMetaFields;
+    this.hoodieVirtualFieldInfo = hoodieVirtualFieldInfo;
 
     HFileContext context = new HFileContextBuilder().withBlockSize(hfileConfig.getBlockSize())
         .withCompression(hfileConfig.getCompressionAlgorithm())
@@ -113,7 +116,7 @@ public class HoodieHFileWriter<T extends HoodieRecordPayload, R extends IndexedR
   public void writeAvroWithMetadata(HoodieKey key, R avroRecord) throws IOException {
     if (populateMetaFields) {
       prepRecordWithMetadata(key, avroRecord, instantTime,
-          taskContextSupplier.getPartitionIdSupplier().get(), recordIndex, file.getName());
+          taskContextSupplier.getPartitionIdSupplier().get(), recordIndex, file.getName(), Option.of(hoodieVirtualFieldInfo);
       writeAvro(key.getRecordKey(), avroRecord);
     } else {
       writeAvro(key.getRecordKey(), avroRecord);
@@ -127,6 +130,9 @@ public class HoodieHFileWriter<T extends HoodieRecordPayload, R extends IndexedR
 
   @Override
   public void writeAvro(String recordKey, IndexedRecord record) throws IOException {
+    // I don't think virtual field logic is needed here
+    // (due to keys not needing to be computed and that keys aren't being written to data files)
+    // but not sure
     byte[] value = null;
     boolean isRecordSerialized = false;
     if (keyFieldSchema.isPresent()) {
