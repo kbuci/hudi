@@ -112,9 +112,6 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
 
   @Override
   public void writeAvro(String recordKey, IndexedRecord object) throws IOException {
-    // I don't think virtual field logic is needed here
-    // (due to keys not needing to be computed and that keys aren't being written to data files)
-    // but not sure
     for (int col = 0; col < batch.numCols; col++) {
       ColumnVector colVector = batch.cols[col];
       final String thisField = fieldNames.get(col);

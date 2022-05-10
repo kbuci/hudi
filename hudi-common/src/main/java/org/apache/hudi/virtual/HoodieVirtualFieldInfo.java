@@ -60,8 +60,6 @@ public final class HoodieVirtualFieldInfo {
     boolean recordKeyVirtual = false;
     boolean partitionPathVirtual = false;
 
-    // - The meta field KeyGenerator is responsible for generating both the record key and partition path.
-    // since with virtual fields I wasn't sure how to alter it to keep them both independently configurable
     if (allVirtualFields.contains(HoodieRecord.RECORD_KEY_METADATA_FIELD)) {
       recordKeyVirtual = true;
     }

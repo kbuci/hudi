@@ -130,9 +130,6 @@ public class HoodieHFileWriter<T extends HoodieRecordPayload, R extends IndexedR
 
   @Override
   public void writeAvro(String recordKey, IndexedRecord record) throws IOException {
-    // I don't think virtual field logic is needed here
-    // (due to keys not needing to be computed and that keys aren't being written to data files)
-    // but not sure
     byte[] value = null;
     boolean isRecordSerialized = false;
     if (keyFieldSchema.isPresent()) {

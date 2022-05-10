@@ -98,7 +98,6 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
           taskContextSupplier.getPartitionIdSupplier().get(), recordIndex, file.getName(), Option.of(virtualFieldInfo));
       super.write(avroRecord);
       if (!virtualFieldInfo.isRecordKeyVirtual()) {
-        // Should this be explicitly null for virtual key?
         writeSupport.add(key.getRecordKey());
       }
     } else {
@@ -115,7 +114,6 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
   public void writeAvro(String key, IndexedRecord object) throws IOException {
     super.write(object);
     if (populateMetaFields && !virtualFieldInfo.isRecordKeyVirtual()) {
-      // Should this be explicitly null for virtual key?
       writeSupport.add(key);
     }
   }
