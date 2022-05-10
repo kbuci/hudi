@@ -186,6 +186,9 @@ public class HoodieTableConfig extends HoodieConfig {
       .withDocumentation("Comma delimited list of fields that should not be written to data files, even if "
           + "hoodie.populate.fields is enabled");
 
+  public static final String VIRTUAL_FIELDS_GENERATORS_CONFIG = "hoodie.virtual.fields.generators.";
+  public static final String VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG = "hoodie.virtual.fields.columns.";
+
   public static final ConfigProperty<String> VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATOR = ConfigProperty
       .key("hoodie.virtual.fields.columns")
       .defaultValue("")
@@ -635,8 +638,12 @@ public class HoodieTableConfig extends HoodieConfig {
     return getStringOrDefault(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATOR);
   }
 
-  public String virtualFieldsGenerators() {
-    return getStringOrDefault(VIRTUAL_FIELDS_GENERATORS);
+  public String hoodieVirtualFieldsGeneratorsConfig(String virtualField) {
+    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_GENERATORS_CONFIG).defaultValue(""));
+  }
+
+  public String hoodieVirtualFieldsColumnsNeededForGeneratorsConfig(String virtualField) {
+    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG).defaultValue(""));
   }
 
   public String hoodieRecordKeyVirtualFieldRequiredColumns() {
