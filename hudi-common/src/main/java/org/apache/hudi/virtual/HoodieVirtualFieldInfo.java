@@ -15,20 +15,22 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
+import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.keygen.KeyGenerator;
+import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 
 public final class HoodieVirtualFieldInfo {
 
   private final List<String> allVirtualFields;
-  private final Map<String, Option<KeyGenerator>> virtualFieldToOptionalGenerator;
+  private final Map<String, Option<BaseKeyGenerator>> virtualFieldToOptionalGenerator;
   private final Map<String, List> virtualFieldToRequiredColumns;
   private final boolean recordKeyVirtual;
   private final boolean partitionPathVirtual;
   private final List<Integer> recordKeyRequiredColumns;
   private final List<Integer> partitionPathRequiredColumns;
-  private final Option<KeyGenerator> metaFieldsKeyGenerator;
+  private final Option<KeyGenerator> hoddieKeyFieldsGenerator;
 
-  public HoodieVirtualFieldInfo(HoodieTableConfig config){
+  public HoodieVirtualFieldInfo(HoodieTableConfig config, KeyGeneratorOptions keyGeneratorOptions){
     allVirtualFields = config.virtualFields().isEmpty()? Collections.singletonList("")
         : Collections.unmodifiableList(Arrays.stream(config.virtualFields().split(",")).sorted().collect(
         Collectors.toList()));
@@ -49,9 +51,9 @@ public final class HoodieVirtualFieldInfo {
     }
 
     if (config.getKeyGeneratorClassName() == null) {
-      metaFieldsKeyGenerator = Option.empty();
+      hoddieKeyFieldsGenerator = Option.empty();
     } else {
-      metaFieldsKeyGenerator = loadVirtualFieldGenerator(config.getKeyGeneratorClassName(), config.getProps());
+      hoddieKeyFieldsGenerator = loadVirtualFieldGenerator(config.getKeyGeneratorClassName(), config.getProps());
     }
 
     recordKeyRequiredColumns = virtualFieldToRequiredColumns.get(HoodieRecord.RECORD_KEY_METADATA_FIELD);
@@ -81,22 +83,39 @@ public final class HoodieVirtualFieldInfo {
     return partitionPathVirtual;
   }
 
-  private HoodieKey getMetaFieldsFromRecord(GenericRecord record) {
-    if (metaFieldsKeyGenerator.isPresent()) {
-      return  metaFieldsKeyGenerator.get().getKey(record);
-    }
-    throw new HoodieException("No generator present");
-  }
 
   public String getRecordKey(GenericRecord record) {
-    return getMetaFieldsFromRecord(record).getRecordKey();
+    if (isRecordKeyVirtual()) {
+
+    } else {
+      return record.get()
+    }
   }
 
   public String getPartitionPath(GenericRecord record) {
-    return getMetaFieldsFromRecord(record).getPartitionPath();
+    return getHoodkeKeyFieldsFromRecord(record).getPartitionPath();
   }
 
   public String getField(String field, GenericRecord record) {
+    if (!allVirtualFields.contains(field)){
+      return (String) record.get(field);
+    }
+    Option<BaseKeyGenerator> generatorOption =  virtualFieldToOptionalGenerator.get(field);
+    if (!generatorOption.isPresent()) {
+      throw new HoodieException("No generator present");
+    }
+    BaseKeyGenerator generator = generatorOption.get();
+    if (field.equals(HoodieRecord.RECORD_KEY_METADATA_FIELD)){
+      return generator.getRecordKey(record);
+    }
+    if (field.equals(HoodieRecord.PARTITION_PATH_METADATA_FIELD)){
+      return generator.getPartitionPath(record);
+    }
+
+    return computeField(generator, virtualFieldToRequiredColumns.get(field), record);
+  }
+
+  public String getFields(List<String> field, GenericRecord record) {
     if (field.equals(HoodieRecord.RECORD_KEY_METADATA_FIELD)){
       return getRecordKey(record);
     }
@@ -126,7 +145,7 @@ public final class HoodieVirtualFieldInfo {
       return Option.empty();
     }
     try {
-      return  Option.of((KeyGenerator) ReflectionUtils.loadClass(generatorClass, props));
+      return  Option.of((BaseKeyGenerator) ReflectionUtils.loadClass(generatorClass, props));
     } catch (Throwable e) {
       throw new HoodieIOException("Could not load virtual field generator class " +  e);
     }
