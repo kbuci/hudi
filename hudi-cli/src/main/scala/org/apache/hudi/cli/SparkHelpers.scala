@@ -29,7 +29,7 @@ import org.apache.hudi.common.model.{HoodieFileFormat, HoodieRecord}
 import org.apache.hudi.common.util.BaseFileUtils
 import org.apache.hudi.config.{HoodieIndexConfig, HoodieStorageConfig}
 import org.apache.hudi.io.storage.{HoodieAvroParquetConfig, HoodieParquetWriter}
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo
+import org.apache.hudi.common.util.Option
 import org.apache.parquet.avro.AvroSchemaConverter
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
 import org.apache.spark.sql.{DataFrame, SQLContext}
@@ -52,7 +52,7 @@ object SparkHelpers {
     parquetConfig.getHadoopConf().setClassLoader(Thread.currentThread.getContextClassLoader)
 
     val writer = new HoodieParquetWriter[HoodieJsonPayload, IndexedRecord](instantTime, destinationFile, parquetConfig, schema, new SparkTaskContextSupplier(),
-      true, new HoodieVirtualFieldInfo(new HoodieTableConfig()))
+      true, Option.empty())
     for (rec <- sourceRecords) {
       val key: String = rec.get(HoodieRecord.RECORD_KEY_METADATA_FIELD).toString
       if (!keysToSkip.contains(key)) {

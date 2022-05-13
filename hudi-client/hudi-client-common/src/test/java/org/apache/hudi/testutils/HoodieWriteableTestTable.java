@@ -74,7 +74,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
   protected final Schema schema;
   protected final BloomFilter filter;
   protected final boolean populateMetaFields;
-  private final HoodieVirtualFieldInfo hoodieVirtualFieldInfo;
+  private final Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfo;
 
   protected HoodieWriteableTestTable(String basePath, FileSystem fs, HoodieTableMetaClient metaClient,
                                      Schema schema, BloomFilter filter) {
@@ -87,7 +87,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
     this.schema = schema;
     this.filter = filter;
     this.populateMetaFields = metaClient.getTableConfig().populateMetaFields();
-    this.hoodieVirtualFieldInfo = new HoodieVirtualFieldInfo(metaClient.getTableConfig());
+    this.hoodieVirtualFieldInfo = Option.of(new HoodieVirtualFieldInfo(metaClient.getTableConfig()));
   }
 
   @Override

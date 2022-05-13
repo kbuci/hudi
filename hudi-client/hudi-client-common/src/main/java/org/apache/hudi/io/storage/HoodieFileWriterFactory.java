@@ -74,14 +74,14 @@ public class HoodieFileWriterFactory {
 
   private static <T extends HoodieRecordPayload, R extends IndexedRecord> HoodieFileWriter<R> newParquetFileWriter(
       String instantTime, Path path, HoodieWriteConfig config, Schema schema, HoodieTable hoodieTable,
-      TaskContextSupplier taskContextSupplier, boolean populateMetaFields, HoodieVirtualFieldInfo hoodieVirtualFieldInfo) throws IOException {
+      TaskContextSupplier taskContextSupplier, boolean populateMetaFields, Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption) throws IOException {
     return newParquetFileWriter(instantTime, path, config, schema, hoodieTable.getHadoopConf(),
-        taskContextSupplier, populateMetaFields, populateMetaFields, hoodieVirtualFieldInfo);
+        taskContextSupplier, populateMetaFields, populateMetaFields, hoodieVirtualFieldInfoOption);
   }
 
   private static <T extends HoodieRecordPayload, R extends IndexedRecord> HoodieFileWriter<R> newParquetFileWriter(
       String instantTime, Path path, HoodieWriteConfig config, Schema schema, Configuration conf,
-      TaskContextSupplier taskContextSupplier, boolean populateMetaFields, boolean enableBloomFilter, HoodieVirtualFieldInfo hoodieVirtualFieldInfo) throws IOException {
+      TaskContextSupplier taskContextSupplier, boolean populateMetaFields, boolean enableBloomFilter, Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption) throws IOException {
     Option<BloomFilter> filter = enableBloomFilter ? Option.of(createBloomFilter(config)) : Option.empty();
     HoodieAvroWriteSupport writeSupport = new HoodieAvroWriteSupport(new AvroSchemaConverter(conf).convert(schema), schema, filter);
 
@@ -89,29 +89,29 @@ public class HoodieFileWriterFactory {
         config.getParquetBlockSize(), config.getParquetPageSize(), config.getParquetMaxFileSize(),
         conf, config.getParquetCompressionRatio(), config.parquetDictionaryEnabled());
 
-    return new HoodieParquetWriter<>(instantTime, path, parquetConfig, schema, taskContextSupplier, populateMetaFields, hoodieVirtualFieldInfo);
+    return new HoodieParquetWriter<>(instantTime, path, parquetConfig, schema, taskContextSupplier, populateMetaFields, hoodieVirtualFieldInfoOption);
   }
 
   static <T extends HoodieRecordPayload, R extends IndexedRecord> HoodieFileWriter<R> newHFileFileWriter(
       String instantTime, Path path, HoodieWriteConfig config, Schema schema, Configuration conf,
-      TaskContextSupplier taskContextSupplier, HoodieVirtualFieldInfo hoodieVirtualFieldInfo) throws IOException {
+      TaskContextSupplier taskContextSupplier, Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption) throws IOException {
     BloomFilter filter = createBloomFilter(config);
     HoodieHFileConfig hfileConfig = new HoodieHFileConfig(conf,
         config.getHFileCompressionAlgorithm(), config.getHFileBlockSize(), config.getHFileMaxFileSize(),
         HoodieHFileReader.KEY_FIELD_NAME, PREFETCH_ON_OPEN, CACHE_DATA_IN_L1, DROP_BEHIND_CACHE_COMPACTION,
         filter, HFILE_COMPARATOR);
 
-    return new HoodieHFileWriter<>(instantTime, path, hfileConfig, schema, taskContextSupplier, config.populateMetaFields(), hoodieVirtualFieldInfo);
+    return new HoodieHFileWriter<>(instantTime, path, hfileConfig, schema, taskContextSupplier, config.populateMetaFields(), hoodieVirtualFieldInfoOption);
   }
 
   private static <T extends HoodieRecordPayload, R extends IndexedRecord> HoodieFileWriter<R> newOrcFileWriter(
       String instantTime, Path path, HoodieWriteConfig config, Schema schema, Configuration conf,
-      TaskContextSupplier taskContextSupplier, HoodieVirtualFieldInfo hoodieVirtualFieldInfo) throws IOException {
+      TaskContextSupplier taskContextSupplier, Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption) throws IOException {
     BloomFilter filter = createBloomFilter(config);
     HoodieOrcConfig orcConfig = new HoodieOrcConfig(conf, config.getOrcCompressionCodec(),
         config.getOrcStripeSize(), config.getOrcBlockSize(), config.getOrcMaxFileSize(), filter);
 
-    return new HoodieOrcWriter<>(instantTime, path, orcConfig, schema, taskContextSupplier, hoodieVirtualFieldInfo);
+    return new HoodieOrcWriter<>(instantTime, path, orcConfig, schema, taskContextSupplier, hoodieVirtualFieldInfoOption);
   }
 
   private static BloomFilter createBloomFilter(HoodieWriteConfig config) {

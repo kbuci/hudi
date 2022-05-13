@@ -30,6 +30,7 @@ public class HoodieVirtualKeyInfo implements Serializable {
   private final int recordKeyFieldIndex;
   private final int partitionPathFieldIndex;
 
+  // TODO Deprecate and replace usages with org.apache.hudi.virtual.HoodieVirtualFieldInfo.HoodieVirtualFieldInfo
   public HoodieVirtualKeyInfo(String recordKeyField, String partitionPathField, int recordKeyFieldIndex, int partitionPathFieldIndex) {
     this.recordKeyField = recordKeyField;
     this.partitionPathField = partitionPathField;

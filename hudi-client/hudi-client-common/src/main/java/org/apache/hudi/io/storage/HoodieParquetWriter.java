@@ -56,14 +56,15 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
   private final String instantTime;
   private final TaskContextSupplier taskContextSupplier;
   private final boolean populateMetaFields;
-  private final HoodieVirtualFieldInfo virtualFieldInfo;
+  private final Option<HoodieVirtualFieldInfo> virtualFieldInfoOption;
+  private final boolean isRecordKeyVirtual;
 
   public HoodieParquetWriter(String instantTime,
                              Path file,
                              HoodieAvroParquetConfig parquetConfig,
                              Schema schema,
                              TaskContextSupplier taskContextSupplier,
-                             boolean populateMetaFields, HoodieVirtualFieldInfo virtualFieldInfo) throws IOException {
+                             boolean populateMetaFields, Option<HoodieVirtualFieldInfo> virtualFieldInfoOption) throws IOException {
     super(HoodieWrapperFileSystem.convertToHoodiePath(file, parquetConfig.getHadoopConf()),
         ParquetFileWriter.Mode.CREATE,
         parquetConfig.getWriteSupport(),
@@ -88,16 +89,17 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
     this.instantTime = instantTime;
     this.taskContextSupplier = taskContextSupplier;
     this.populateMetaFields = populateMetaFields;
-    this.virtualFieldInfo = virtualFieldInfo;
+    this.virtualFieldInfoOption = virtualFieldInfoOption;
+    this.isRecordKeyVirtual = virtualFieldInfoOption.isPresent() && virtualFieldInfoOption.get().isRecordKeyVirtual();
   }
 
   @Override
   public void writeAvroWithMetadata(HoodieKey key, R avroRecord) throws IOException {
     if (populateMetaFields) {
       prepRecordWithMetadata(key, avroRecord, instantTime,
-          taskContextSupplier.getPartitionIdSupplier().get(), recordIndex, file.getName(), Option.of(virtualFieldInfo));
+          taskContextSupplier.getPartitionIdSupplier().get(), recordIndex, file.getName(), virtualFieldInfoOption);
       super.write(avroRecord);
-      if (!virtualFieldInfo.isRecordKeyVirtual()) {
+      if (!isRecordKeyVirtual) {
         writeSupport.add(key.getRecordKey());
       }
     } else {
@@ -113,7 +115,7 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
   @Override
   public void writeAvro(String key, IndexedRecord object) throws IOException {
     super.write(object);
-    if (populateMetaFields && !virtualFieldInfo.isRecordKeyVirtual()) {
+    if (populateMetaFields && !isRecordKeyVirtual) {
       writeSupport.add(key);
     }
   }

@@ -110,7 +110,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     when(partitionSupplier.get()).thenReturn(10);
 
     return HoodieFileWriterFactory.newHFileFileWriter(
-        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier, new HoodieVirtualFieldInfo(new HoodieTableConfig()));
+        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier, Option.empty());
   }
 
   @Override

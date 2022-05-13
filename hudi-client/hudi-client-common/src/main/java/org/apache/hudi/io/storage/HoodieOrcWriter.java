@@ -69,10 +69,10 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
   private HoodieOrcConfig orcConfig;
   private String minRecordKey;
   private String maxRecordKey;
-  private final HoodieVirtualFieldInfo hoodieVirtualFieldInfo;
+  private final Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption;
 
   public HoodieOrcWriter(String instantTime, Path file, HoodieOrcConfig config, Schema schema,
-      TaskContextSupplier taskContextSupplier, HoodieVirtualFieldInfo hoodieVirtualFieldInfo) throws IOException {
+      TaskContextSupplier taskContextSupplier, Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption) throws IOException {
 
     Configuration conf = FSUtils.registerFileSystem(file, config.getHadoopConf());
     this.file = HoodieWrapperFileSystem.convertToHoodiePath(file, conf);
@@ -95,13 +95,14 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
         .setSchema(orcSchema);
     this.writer = OrcFile.createWriter(this.file, writerOptions);
     this.orcConfig = config;
-    this.hoodieVirtualFieldInfo = hoodieVirtualFieldInfo;
+    this.hoodieVirtualFieldInfoOption = hoodieVirtualFieldInfoOption;
   }
 
   @Override
   public void writeAvroWithMetadata(HoodieKey key, R avroRecord) throws IOException {
     prepRecordWithMetadata(key, avroRecord, instantTime,
-        taskContextSupplier.getPartitionIdSupplier().get(), RECORD_INDEX, file.getName(), Option.of(hoodieVirtualFieldInfo));
+        taskContextSupplier.getPartitionIdSupplier().get(), RECORD_INDEX, file.getName(),
+            hoodieVirtualFieldInfoOption);
     writeAvro(key.getRecordKey(), avroRecord);
   }
 
