@@ -244,6 +244,7 @@ public class HoodieTableConfig extends HoodieConfig {
 
   public static final ConfigProperty<String> URL_ENCODE_PARTITIONING = KeyGeneratorOptions.URL_ENCODE_PARTITIONING;
   public static final ConfigProperty<String> HIVE_STYLE_PARTITIONING_ENABLE = KeyGeneratorOptions.HIVE_STYLE_PARTITIONING_ENABLE;
+  public static final ConfigProperty<String> KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED = KeyGeneratorOptions.KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED;
 
   public static final List<String> PERSISTED_CONFIG_LIST = Arrays.asList(
       Config.DATE_TIME_PARSER_PROP,
@@ -681,6 +682,10 @@ public class HoodieTableConfig extends HoodieConfig {
 
   public String getUrlEncodePartitioning() {
     return getString(URL_ENCODE_PARTITIONING);
+  }
+
+  public String getKeyGeneratorConsistentLogicalTimestampEnabled() {
+   return getString(KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED);
   }
 
   public Boolean shouldDropPartitionColumns() {

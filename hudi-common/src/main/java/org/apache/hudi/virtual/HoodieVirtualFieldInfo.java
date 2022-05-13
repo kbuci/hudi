@@ -5,7 +5,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
+import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.model.HoodieKey;
@@ -23,14 +26,14 @@ public final class HoodieVirtualFieldInfo {
 
   private final List<String> allVirtualFields;
   private final Map<String, Option<BaseKeyGenerator>> virtualFieldToOptionalGenerator;
-  private final Map<String, List> virtualFieldToRequiredColumns;
+  private final Map<String, List<Integer>> virtualFieldToRequiredColumns;
   private final boolean recordKeyVirtual;
   private final boolean partitionPathVirtual;
   private final List<Integer> recordKeyRequiredColumns;
   private final List<Integer> partitionPathRequiredColumns;
-  private final Option<KeyGenerator> hoddieKeyFieldsGenerator;
+  private final Option<BaseKeyGenerator> hoddieKeyFieldsGenerator;
 
-  public HoodieVirtualFieldInfo(HoodieTableConfig config, KeyGeneratorOptions keyGeneratorOptions){
+  public HoodieVirtualFieldInfo(HoodieTableConfig config){
     allVirtualFields = config.virtualFields().isEmpty()? Collections.singletonList("")
         : Collections.unmodifiableList(Arrays.stream(config.virtualFields().split(",")).sorted().collect(
         Collectors.toList()));
@@ -54,6 +57,8 @@ public final class HoodieVirtualFieldInfo {
       hoddieKeyFieldsGenerator = Option.empty();
     } else {
       hoddieKeyFieldsGenerator = loadVirtualFieldGenerator(config.getKeyGeneratorClassName(), config.getProps());
+      virtualFieldToOptionalGenerator.put(HoodieRecord.RECORD_KEY_METADATA_FIELD, hoddieKeyFieldsGenerator);
+      virtualFieldToOptionalGenerator.put(HoodieRecord.PARTITION_PATH_METADATA_FIELD, hoddieKeyFieldsGenerator);
     }
 
     recordKeyRequiredColumns = virtualFieldToRequiredColumns.get(HoodieRecord.RECORD_KEY_METADATA_FIELD);
@@ -86,20 +91,21 @@ public final class HoodieVirtualFieldInfo {
 
   public String getRecordKey(GenericRecord record) {
     if (isRecordKeyVirtual()) {
-
+      return computeField(hoddieKeyFieldsGenerator.get(), recordKeyRequiredColumns, record);
     } else {
-      return record.get()
+      return (String) record.get(HoodieRecord.RECORD_KEY_METADATA_FIELD);
     }
   }
 
   public String getPartitionPath(GenericRecord record) {
-    return getHoodkeKeyFieldsFromRecord(record).getPartitionPath();
+    if (isPartitionPathVirtual()) {
+      return computePartitionPathField(hoddieKeyFieldsGenerator.get(), partitionPathRequiredColumns, record);
+    } else {
+      return (String) record.get(HoodieRecord.PARTITION_PATH_METADATA_FIELD);
+    }
   }
 
-  public String getField(String field, GenericRecord record) {
-    if (!allVirtualFields.contains(field)){
-      return (String) record.get(field);
-    }
+  private String getFieldWithRequiredColumns(String field, GenericRecord record, Iterable<Integer> requiredColumns) {
     Option<BaseKeyGenerator> generatorOption =  virtualFieldToOptionalGenerator.get(field);
     if (!generatorOption.isPresent()) {
       throw new HoodieException("No generator present");
@@ -111,27 +117,33 @@ public final class HoodieVirtualFieldInfo {
     if (field.equals(HoodieRecord.PARTITION_PATH_METADATA_FIELD)){
       return generator.getPartitionPath(record);
     }
-
-    return computeField(generator, virtualFieldToRequiredColumns.get(field), record);
+    return computeField(generator, requiredColumns, record);
   }
 
-  public String getFields(List<String> field, GenericRecord record) {
-    if (field.equals(HoodieRecord.RECORD_KEY_METADATA_FIELD)){
-      return getRecordKey(record);
-    }
-    if (field.equals(HoodieRecord.PARTITION_PATH_METADATA_FIELD)){
-      return getPartitionPath(record);
-    }
+  public String getField(String field, GenericRecord record) {
     if (!allVirtualFields.contains(field)){
       return (String) record.get(field);
     }
-    if (!virtualFieldToOptionalGenerator.get(field).isPresent()) {
-      throw new HoodieException("No generator present");
-    }
-    return computeField(virtualFieldToOptionalGenerator.get(field).get(), virtualFieldToRequiredColumns.get(field), record);
+    return getFieldWithRequiredColumns(field, record,  virtualFieldToRequiredColumns.get(field));
   }
 
-  private static String computeField(KeyGenerator generator, List<Integer> requiredColumns, GenericRecord record) {
+  public Iterable<String> getFields(Iterable<String> fields, GenericRecord record) {
+    Set allRequiredColumns = new TreeSet<>();
+    List<String> fieldValues = null;
+    for (String field : fields ) {
+      if (!allVirtualFields.contains(field)){
+        fieldValues.add( (String) record.get(field));
+        continue;
+      }
+      for (Integer requiredIndex : virtualFieldToRequiredColumns.get(field)) {
+       allRequiredColumns.add(requiredIndex);
+      }
+      fieldValues.add(getFieldWithRequiredColumns(field, record, allRequiredColumns));
+    }
+    return fieldValues;
+  }
+
+  private static String assertCanComputeField(KeyGenerator generator, Iterable<Integer> requiredColumns, GenericRecord record) {
     for (Integer column : requiredColumns) {
       if (record.get(column.intValue()) == null){
         throw new HoodieException("Could not use generator " + generator + " on record " + record.toString());
@@ -140,7 +152,17 @@ public final class HoodieVirtualFieldInfo {
     return generator.getKey(record).getRecordKey();
   }
 
-  private static Option<KeyGenerator> loadVirtualFieldGenerator(String generatorClass, TypedProperties props) {
+  private static String computeField(KeyGenerator generator, Iterable<Integer> requiredColumns, GenericRecord record) {
+    assertCanComputeField(generator, requiredColumns, record);
+    return generator.getKey(record).getRecordKey();
+  }
+
+  private static String computePartitionPathField(KeyGenerator generator, Iterable<Integer> requiredColumns, GenericRecord record) {
+    assertCanComputeField(generator, requiredColumns, record);
+    return generator.getKey(record).getPartitionPath();
+  }
+
+  private static Option<BaseKeyGenerator> loadVirtualFieldGenerator(String generatorClass, TypedProperties props) {
     if (generatorClass.isEmpty()){
       return Option.empty();
     }
@@ -154,6 +176,5 @@ public final class HoodieVirtualFieldInfo {
   private static List<Integer> asIndexList(String fieldNames) {
     return Arrays.stream(fieldNames.split(",")).map((field) -> Integer.parseInt(field)).collect(Collectors.toList());
   }
-
 
 }
