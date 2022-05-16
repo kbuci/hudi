@@ -80,7 +80,7 @@ import static org.apache.avro.Schema.Type.UNION;
 import static org.apache.hudi.avro.AvroSchemaUtils.createNullableSchema;
 import static org.apache.hudi.avro.AvroSchemaUtils.resolveNullableSchema;
 import static org.apache.hudi.avro.AvroSchemaUtils.resolveUnionSchema;
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 
 /**
  * Helper class to do common stuff across Avro.
@@ -326,11 +326,11 @@ public class HoodieAvroUtils {
   }
 
   public static GenericRecord addHoodieKeyToRecord(GenericRecord record, String recordKey, String partitionPath,
-      String fileName, Option<HoodieVirtualFieldInfo> virtualFieldInfoOption) {
+      String fileName, Option<HoodieVirtualKeyInfo> virtualFieldInfoOption) {
     if(!virtualFieldInfoOption.isPresent()) {
       return addHoodieKeyToRecord(record, recordKey, partitionPath, fileName);
     }
-    HoodieVirtualFieldInfo virtualFieldInfo = virtualFieldInfoOption.get();
+    HoodieVirtualKeyInfo virtualFieldInfo = virtualFieldInfoOption.get();
     record.put(HoodieRecord.FILENAME_METADATA_FIELD, fileName);
     if(!virtualFieldInfo.isPartitionPathVirtual()){
       record.put(HoodieRecord.PARTITION_PATH_METADATA_FIELD, partitionPath);

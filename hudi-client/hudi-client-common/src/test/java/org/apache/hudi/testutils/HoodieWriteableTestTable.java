@@ -50,7 +50,7 @@ import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.orc.CompressionKind;
@@ -74,7 +74,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
   protected final Schema schema;
   protected final BloomFilter filter;
   protected final boolean populateMetaFields;
-  private final Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfo;
+  private final Option<HoodieVirtualKeyInfo> hoodieVirtualFieldInfo;
 
   protected HoodieWriteableTestTable(String basePath, FileSystem fs, HoodieTableMetaClient metaClient,
                                      Schema schema, BloomFilter filter) {
@@ -87,7 +87,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
     this.schema = schema;
     this.filter = filter;
     this.populateMetaFields = metaClient.getTableConfig().populateMetaFields();
-    this.hoodieVirtualFieldInfo = Option.of(new HoodieVirtualFieldInfo(metaClient.getTableConfig()));
+    this.hoodieVirtualFieldInfo = Option.of(new HoodieVirtualKeyInfo(metaClient.getTableConfig()));
   }
 
   @Override

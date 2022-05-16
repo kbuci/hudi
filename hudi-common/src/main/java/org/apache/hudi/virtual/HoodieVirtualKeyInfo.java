@@ -8,10 +8,8 @@ import java.util.HashMap;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
-import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hudi.common.config.TypedProperties;
-import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.Option;
@@ -20,9 +18,8 @@ import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.keygen.KeyGenerator;
-import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 
-public final class HoodieVirtualFieldInfo {
+public final class HoodieVirtualKeyInfo {
 
   private final List<String> allVirtualFields;
   private final Map<String, Option<BaseKeyGenerator>> virtualFieldToOptionalGenerator;
@@ -33,7 +30,7 @@ public final class HoodieVirtualFieldInfo {
   private final List<Integer> partitionPathRequiredColumns;
   private final Option<BaseKeyGenerator> hoddieKeyFieldsGenerator;
 
-  public HoodieVirtualFieldInfo(HoodieTableConfig config){
+  public HoodieVirtualKeyInfo(HoodieTableConfig config){
     allVirtualFields = config.virtualFields().isEmpty()? Collections.singletonList("")
         : Collections.unmodifiableList(Arrays.stream(config.virtualFields().split(",")).sorted().collect(
         Collectors.toList()));

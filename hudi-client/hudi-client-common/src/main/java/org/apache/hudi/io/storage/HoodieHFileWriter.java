@@ -44,7 +44,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicLong;
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 
 /**
  * HoodieHFileWriter writes IndexedRecords into an HFile. The record's key is used as the key and the
@@ -70,13 +70,13 @@ public class HoodieHFileWriter<T extends HoodieRecordPayload, R extends IndexedR
   private HFile.Writer writer;
   private String minRecordKey;
   private String maxRecordKey;
-  private final Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption;
+  private final Option<HoodieVirtualKeyInfo> hoodieVirtualFieldInfoOption;
 
   // This is private in CacheConfig so have been copied here.
   private static String DROP_BEHIND_CACHE_COMPACTION_KEY = "hbase.hfile.drop.behind.compaction";
 
   public HoodieHFileWriter(String instantTime, Path file, HoodieHFileConfig hfileConfig, Schema schema,
-                           TaskContextSupplier taskContextSupplier, boolean populateMetaFields, Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption) throws IOException {
+                           TaskContextSupplier taskContextSupplier, boolean populateMetaFields, Option<HoodieVirtualKeyInfo> hoodieVirtualFieldInfoOption) throws IOException {
 
     Configuration conf = FSUtils.registerFileSystem(file, hfileConfig.getHadoopConf());
     this.file = HoodieWrapperFileSystem.convertToHoodiePath(file, conf);

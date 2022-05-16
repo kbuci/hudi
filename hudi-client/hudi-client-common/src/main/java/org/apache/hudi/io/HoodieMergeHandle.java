@@ -51,7 +51,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -112,7 +112,7 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
   protected long insertRecordsWritten = 0;
   protected boolean useWriterSchemaForCompaction;
   protected Option<BaseKeyGenerator> keyGeneratorOpt;
-  protected Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption;
+  protected Option<HoodieVirtualKeyInfo> hoodieVirtualFieldInfoOption;
   private HoodieBaseFile baseFileToMerge;
 
   public HoodieMergeHandle(HoodieWriteConfig config, String instantTime, HoodieTable<T, I, K, O> hoodieTable,
@@ -154,7 +154,7 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
   }
 
   private void validateAndSetAndKeyGenProps(Option<BaseKeyGenerator> keyGeneratorOpt, boolean populateMetaFields,
-      Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption ) {
+      Option<HoodieVirtualKeyInfo> hoodieVirtualFieldInfoOption ) {
     ValidationUtils.checkArgument(populateMetaFields == !keyGeneratorOpt.isPresent());
     this.keyGeneratorOpt = keyGeneratorOpt;
     this.hoodieVirtualFieldInfoOption = hoodieVirtualFieldInfoOption;

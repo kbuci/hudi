@@ -28,7 +28,7 @@ import org.apache.hudi.common.fs.HoodieWrapperFileSystem;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.parquet.hadoop.ParquetFileWriter;
 import org.apache.parquet.hadoop.ParquetWriter;
 
@@ -56,7 +56,7 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
   private final String instantTime;
   private final TaskContextSupplier taskContextSupplier;
   private final boolean populateMetaFields;
-  private final Option<HoodieVirtualFieldInfo> virtualFieldInfoOption;
+  private final Option<HoodieVirtualKeyInfo> virtualFieldInfoOption;
   private final boolean isRecordKeyVirtual;
 
   public HoodieParquetWriter(String instantTime,
@@ -64,7 +64,7 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
                              HoodieAvroParquetConfig parquetConfig,
                              Schema schema,
                              TaskContextSupplier taskContextSupplier,
-                             boolean populateMetaFields, Option<HoodieVirtualFieldInfo> virtualFieldInfoOption) throws IOException {
+                             boolean populateMetaFields, Option<HoodieVirtualKeyInfo> virtualFieldInfoOption) throws IOException {
     super(HoodieWrapperFileSystem.convertToHoodiePath(file, parquetConfig.getHadoopConf()),
         ParquetFileWriter.Mode.CREATE,
         parquetConfig.getWriteSupport(),

@@ -48,7 +48,7 @@ import static org.apache.hudi.avro.HoodieAvroWriteSupport.HOODIE_BLOOM_FILTER_TY
 import static org.apache.hudi.avro.HoodieAvroWriteSupport.HOODIE_MAX_RECORD_KEY_FOOTER;
 import static org.apache.hudi.avro.HoodieAvroWriteSupport.HOODIE_MIN_RECORD_KEY_FOOTER;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 
 public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRecord>
     implements HoodieFileWriter<R>, Closeable {
@@ -69,10 +69,10 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
   private HoodieOrcConfig orcConfig;
   private String minRecordKey;
   private String maxRecordKey;
-  private final Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption;
+  private final Option<HoodieVirtualKeyInfo> hoodieVirtualFieldInfoOption;
 
   public HoodieOrcWriter(String instantTime, Path file, HoodieOrcConfig config, Schema schema,
-      TaskContextSupplier taskContextSupplier, Option<HoodieVirtualFieldInfo> hoodieVirtualFieldInfoOption) throws IOException {
+      TaskContextSupplier taskContextSupplier, Option<HoodieVirtualKeyInfo> hoodieVirtualFieldInfoOption) throws IOException {
 
     Configuration conf = FSUtils.registerFileSystem(file, config.getHadoopConf());
     this.file = HoodieWrapperFileSystem.convertToHoodiePath(file, conf);

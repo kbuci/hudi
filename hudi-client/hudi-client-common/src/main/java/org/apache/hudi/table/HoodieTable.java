@@ -83,7 +83,7 @@ import org.apache.hudi.table.marker.WriteMarkersFactory;
 import org.apache.hudi.table.storage.HoodieLayoutFactory;
 import org.apache.hudi.table.storage.HoodieStorageLayout;
 
-import org.apache.hudi.virtual.HoodieVirtualFieldInfo;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -118,7 +118,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
   private static final Logger LOG = LogManager.getLogger(HoodieTable.class);
 
   protected final HoodieWriteConfig config;
-  private final HoodieVirtualFieldInfo virtualFieldInfo;
+  private final HoodieVirtualKeyInfo virtualFieldInfo;
   protected final HoodieTableMetaClient metaClient;
   protected final HoodieIndex<?, ?> index;
   private SerializableConfiguration hadoopConfiguration;
@@ -141,7 +141,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
 
     this.viewManager = FileSystemViewManager.createViewManager(context, config.getMetadataConfig(), config.getViewStorageConfig(), config.getCommonConfig(), () -> metadata);
     this.metaClient = metaClient;
-    this.virtualFieldInfo = new HoodieVirtualFieldInfo(metaClient.getTableConfig(), config.getKe);
+    this.virtualFieldInfo = new HoodieVirtualKeyInfo(metaClient.getTableConfig(), config.getKe);
     this.index = getIndex(config, context);
     this.storageLayout = getStorageLayout(config);
     this.taskContextSupplier = context.getTaskContextSupplier();
@@ -282,7 +282,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
     return metaClient;
   }
 
-  public HoodieVirtualFieldInfo getHoodieVirtualFieldInfo() {
+  public HoodieVirtualKeyInfo getHoodieVirtualFieldInfo() {
     return virtualFieldInfo;
   }
 
