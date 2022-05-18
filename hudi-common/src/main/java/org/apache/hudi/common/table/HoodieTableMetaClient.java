@@ -256,6 +256,10 @@ public class HoodieTableMetaClient implements Serializable {
     return basePath + Path.SEPARATOR + BOOTSTRAP_INDEX_BY_FILE_ID_FOLDER_PATH;
   }
 
+  public void setVirtualKey() {
+    return;
+  }
+
   /**
    * @return path where archived timeline is stored
    */
