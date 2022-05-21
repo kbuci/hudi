@@ -141,7 +141,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
 
     this.viewManager = FileSystemViewManager.createViewManager(context, config.getMetadataConfig(), config.getViewStorageConfig(), config.getCommonConfig(), () -> metadata);
     this.metaClient = metaClient;
-    this.virtualFieldInfo = new HoodieVirtualKeyInfo(metaClient.getTableConfig(), config.getKe);
+    this.virtualFieldInfo = new HoodieVirtualKeyInfo(metaClient.getTableConfig());
     this.index = getIndex(config, context);
     this.storageLayout = getStorageLayout(config);
     this.taskContextSupplier = context.getTaskContextSupplier();
