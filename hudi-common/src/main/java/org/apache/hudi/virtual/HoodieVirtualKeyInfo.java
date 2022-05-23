@@ -171,6 +171,9 @@ public final class HoodieVirtualKeyInfo {
   }
 
   private static List<Integer> asIndexList(String fieldNames) {
+    if (fieldNames.isEmpty()) {
+      return Collections.emptyList();
+    }
     return Arrays.stream(fieldNames.split(",")).map((field) -> Integer.parseInt(field)).collect(Collectors.toList());
   }
 

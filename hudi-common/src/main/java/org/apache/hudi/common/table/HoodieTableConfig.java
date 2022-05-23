@@ -189,38 +189,6 @@ public class HoodieTableConfig extends HoodieConfig {
   public static final String VIRTUAL_FIELDS_GENERATORS_CONFIG = "hoodie.virtual.fields.generators.";
   public static final String VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG = "hoodie.virtual.fields.columns.";
 
-  public static final ConfigProperty<String> VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATOR = ConfigProperty
-      .key("hoodie.virtual.fields.columns")
-      .defaultValue("")
-      .withDocumentation("JSON Object that associates each virtual field with the required fields "
-          + "needed to materialize it");
-
-  public static final ConfigProperty<String> VIRTUAL_FIELDS_GENERATORS = ConfigProperty
-      .key("hoodie.virtual.fields.generators")
-      .defaultValue("")
-      .withDocumentation("JSON object that associates each virtual field with the HoodieVirtualFieldGeneratorInterface "
-          + "needed to materialize it");
-
-  public static final ConfigProperty<String> VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_RECORD_KEY = ConfigProperty
-      .key("hoodie.virtual.fields.meta._hoodie_record_key.columns")
-      .defaultValue("")
-      .withDocumentation("Required columns for _hoodie_record_key");
-
-  public static final ConfigProperty<String> VIRTUAL_FIELDS_GENERATOR_FOR_RECORD_KEY = ConfigProperty
-      .key("hoodie.virtual.fields.meta._hoodie_record_key.generator")
-      .defaultValue("")
-      .withDocumentation("Generator for _hoodie_record_key");
-
-  public static final ConfigProperty<String> VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_PARTITION_PATH = ConfigProperty
-      .key("hoodie.virtual.fields.meta._hoodie_partition_path.columns")
-      .defaultValue("")
-      .withDocumentation("");
-
-  public static final ConfigProperty<String> VIRTUAL_FIELDS_GENERATOR_FOR_PARTITION_PATH = ConfigProperty
-      .key("hoodie.virtual.fields.meta._hoodie_partition_path.generator")
-      .defaultValue("")
-      .withDocumentation("");
-
   public static final ConfigProperty<String> KEY_GENERATOR_CLASS_NAME = ConfigProperty
       .key("hoodie.table.keygenerator.class")
       .noDefaultValue()
@@ -635,32 +603,12 @@ public class HoodieTableConfig extends HoodieConfig {
     return getStringOrDefault(VIRTUAL_FIELDS);
   }
 
-  public String virtualFieldsColumns() {
-    return getStringOrDefault(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATOR);
-  }
-
   public String hoodieVirtualFieldsGeneratorsConfig(String virtualField) {
-    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_GENERATORS_CONFIG).defaultValue(""));
+    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_GENERATORS_CONFIG + virtualField).defaultValue(""));
   }
 
   public String hoodieVirtualFieldsColumnsNeededForGeneratorsConfig(String virtualField) {
-    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG).defaultValue(""));
-  }
-
-  public String hoodieRecordKeyVirtualFieldRequiredColumns() {
-    return getStringOrDefault(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_RECORD_KEY);
-  }
-
-  public String hoodieRecordKeyVirtualFieldGenerator() {
-    return getStringOrDefault(VIRTUAL_FIELDS_GENERATOR_FOR_RECORD_KEY);
-  }
-
-  public String hoodiePartitionPathVirtualFieldRequiredColumns() {
-    return getStringOrDefault(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_PARTITION_PATH);
-  }
-
-  public String hoodiePartitionPathVirtualFieldGenerator() {
-    return getStringOrDefault(VIRTUAL_FIELDS_GENERATOR_FOR_PARTITION_PATH);
+    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG + virtualField).defaultValue(""));
   }
 
 

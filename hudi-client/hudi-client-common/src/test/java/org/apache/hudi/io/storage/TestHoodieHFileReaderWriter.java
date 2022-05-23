@@ -39,6 +39,7 @@ import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -89,7 +90,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
 
   @Override
   protected HoodieFileWriter<GenericRecord> createWriter(
-      Schema avroSchema, boolean populateMetaFields) throws Exception {
+      Schema avroSchema, boolean populateMetaFields, Option<HoodieVirtualKeyInfo> hoodieVirtualKeyInfoOption) throws Exception {
     String instantTime = "000";
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath(DUMMY_BASE_PATH)
@@ -104,7 +105,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     when(partitionSupplier.get()).thenReturn(10);
 
     return HoodieFileWriterFactory.newHFileFileWriter(
-        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier, Option.empty());
+        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier, hoodieVirtualKeyInfoOption);
   }
 
   @Override

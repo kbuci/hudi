@@ -26,6 +26,9 @@ import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.common.table.HoodieTableConfig;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +63,7 @@ public abstract class TestHoodieReaderWriterBase {
   protected abstract Path getFilePath();
 
   protected abstract HoodieFileWriter<GenericRecord> createWriter(
-      Schema avroSchema, boolean populateMetaFields) throws Exception;
+      Schema avroSchema, boolean populateMetaFields, Option<HoodieVirtualKeyInfo> hoodieVirtualKeyInfoOption) throws Exception;
 
   protected abstract HoodieFileReader<GenericRecord> createReader(
       Configuration conf) throws Exception;
@@ -104,7 +107,7 @@ public abstract class TestHoodieReaderWriterBase {
   @Test
   public void testWriteReadPrimitiveRecord() throws Exception {
     String schemaPath = "/exampleSchema.avsc";
-    writeFileWithSimpleSchema();
+    writeFileWithSimpleSchema(Option.empty());
 
     Configuration conf = new Configuration();
     verifyMetadata(conf);
@@ -113,11 +116,25 @@ public abstract class TestHoodieReaderWriterBase {
   }
 
   @Test
+  public void testWriteReadPrimitiveRecordWithVirtualField() throws Exception {
+    String schemaPath = "/exampleSchema.avsc";
+    HoodieTableConfig tableConfig = new HoodieTableConfig();
+    tableConfig.setValue(HoodieTableConfig.VIRTUAL_FIELDS, "_row_key");
+    tableConfig.setValue(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME, "SimpleAvroKeyGenerator");
+    writeFileWithSimpleSchema(Option.of(new HoodieVirtualKeyInfo(tableConfig)));
+
+    Configuration conf = new Configuration();
+    verifyMetadata(conf);
+    verifySchema(conf, schemaPath);
+    verifySimpleRecordsWithVirtualField(createReader(conf).getRecordIterator());
+  }
+
+  @Test
   public void testWriteReadComplexRecord() throws Exception {
     String schemaPath = "/exampleSchemaWithUDT.avsc";
     Schema avroSchema = getSchemaFromResource(TestHoodieReaderWriterBase.class, schemaPath);
     Schema udtSchema = avroSchema.getField("driver").schema().getTypes().get(1);
-    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, true);
+    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, true, Option.empty());
     for (int i = 0; i < NUM_RECORDS; i++) {
       GenericRecord record = new GenericData.Record(avroSchema);
       String key = "key" + String.format("%02d", i);
@@ -163,9 +180,9 @@ public abstract class TestHoodieReaderWriterBase {
     verifyFilterRowKeys(createReader(conf));
   }
 
-  protected void writeFileWithSimpleSchema() throws Exception {
+  protected void writeFileWithSimpleSchema(Option<HoodieVirtualKeyInfo> hoodieVirtualKeyInfoOption) throws Exception {
     Schema avroSchema = getSchemaFromResource(TestHoodieReaderWriterBase.class, "/exampleSchema.avsc");
-    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, true);
+    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, true, hoodieVirtualKeyInfoOption);
     for (int i = 0; i < NUM_RECORDS; i++) {
       GenericRecord record = new GenericData.Record(avroSchema);
       String key = "key" + String.format("%02d", i);
@@ -183,6 +200,17 @@ public abstract class TestHoodieReaderWriterBase {
       GenericRecord record = iterator.next();
       String key = "key" + String.format("%02d", index);
       assertEquals(key, record.get("_row_key").toString());
+      assertEquals(Integer.toString(index), record.get("time").toString());
+      assertEquals(index, record.get("number"));
+      index++;
+    }
+  }
+
+  protected void verifySimpleRecordsWithVirtualField(Iterator<GenericRecord> iterator) {
+    int index = 0;
+    while (iterator.hasNext()) {
+      GenericRecord record = iterator.next();
+      assertNull(record.get("_row_key"));
       assertEquals(Integer.toString(index), record.get("time").toString());
       assertEquals(index, record.get("number"));
       index++;
