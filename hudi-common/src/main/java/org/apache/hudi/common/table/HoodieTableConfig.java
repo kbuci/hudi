@@ -180,14 +180,16 @@ public class HoodieTableConfig extends HoodieConfig {
       .withDocumentation("When enabled, populates all meta fields. When disabled, no meta fields are populated "
           + "and incremental queries will not be functional. This is only meant to be used for append only/immutable data for batch processing");
 
+  public static final String VIRTUAL_FIELDS_PREFIX = "hoodie.virtual.fields.";
+
   public static final ConfigProperty<String> VIRTUAL_FIELDS = ConfigProperty
-      .key("hoodie.virtual.fields.names")
+      .key(VIRTUAL_FIELDS_PREFIX + "names")
       .defaultValue("")
       .withDocumentation("Comma delimited list of fields that should not be written to data files, even if "
           + "hoodie.populate.fields is enabled");
 
-  public static final String VIRTUAL_FIELDS_GENERATORS_CONFIG = "hoodie.virtual.fields.generators.";
-  public static final String VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG = "hoodie.virtual.fields.columns.";
+  public static final String VIRTUAL_FIELDS_GENERATORS_CONFIG = VIRTUAL_FIELDS_PREFIX + "generators.";
+  public static final String VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG =  VIRTUAL_FIELDS_PREFIX + "columns.";
 
   public static final ConfigProperty<String> KEY_GENERATOR_CLASS_NAME = ConfigProperty
       .key("hoodie.table.keygenerator.class")
@@ -598,7 +600,6 @@ public class HoodieTableConfig extends HoodieConfig {
     return Boolean.parseBoolean(getStringOrDefault(POPULATE_META_FIELDS));
   }
 
-
   public String virtualFields() {
     return getStringOrDefault(VIRTUAL_FIELDS);
   }
@@ -611,6 +612,9 @@ public class HoodieTableConfig extends HoodieConfig {
     return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG + virtualField).defaultValue(""));
   }
 
+  public boolean hasVirtualFieldConfig() {
+    return !virtualFields().isEmpty();
+  }
 
 
   /**

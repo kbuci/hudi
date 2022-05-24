@@ -50,6 +50,7 @@ import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.virtual.HoodieVirtualKeyConfig;
 import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -87,7 +88,11 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
     this.schema = schema;
     this.filter = filter;
     this.populateMetaFields = metaClient.getTableConfig().populateMetaFields();
-    this.hoodieVirtualFieldInfo = Option.of(new HoodieVirtualKeyInfo(metaClient.getTableConfig()));
+    if (metaClient.getTableConfig().hasVirtualFieldConfig()) {
+      this.hoodieVirtualFieldInfo = Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(metaClient.getTableConfig())));
+    } else {
+      this.hoodieVirtualFieldInfo = Option.empty();
+    }
   }
 
   @Override

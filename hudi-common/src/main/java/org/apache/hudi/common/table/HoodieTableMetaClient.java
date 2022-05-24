@@ -50,6 +50,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hudi.hadoop.CachingPath;
 import org.apache.hudi.hadoop.SerializablePath;
+import org.apache.hudi.virtual.HoodieVirtualKeyConfig;
 import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -141,7 +142,7 @@ public class HoodieTableMetaClient implements Serializable {
       LOG.info("Loading Active commit timeline for " + basePath);
       getActiveTimeline();
     }
-    this.hoodieVirtualKeyInfo = new HoodieVirtualKeyInfo(tableConfig);
+    this.hoodieVirtualKeyInfo = new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig));
   }
 
   /**

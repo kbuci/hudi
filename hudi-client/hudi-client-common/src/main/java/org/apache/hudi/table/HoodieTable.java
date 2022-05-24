@@ -83,6 +83,7 @@ import org.apache.hudi.table.marker.WriteMarkersFactory;
 import org.apache.hudi.table.storage.HoodieLayoutFactory;
 import org.apache.hudi.table.storage.HoodieStorageLayout;
 
+import org.apache.hudi.virtual.HoodieVirtualKeyConfig;
 import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -141,7 +142,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
 
     this.viewManager = FileSystemViewManager.createViewManager(context, config.getMetadataConfig(), config.getViewStorageConfig(), config.getCommonConfig(), () -> metadata);
     this.metaClient = metaClient;
-    this.virtualFieldInfo = new HoodieVirtualKeyInfo(metaClient.getTableConfig());
+    this.virtualFieldInfo = new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(metaClient.getTableConfig()));
     this.index = getIndex(config, context);
     this.storageLayout = getStorageLayout(config);
     this.taskContextSupplier = context.getTaskContextSupplier();

@@ -26,8 +26,10 @@ import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.virtual.HoodieVirtualKeyConfig;
 import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -107,7 +109,7 @@ public abstract class TestHoodieReaderWriterBase {
   @Test
   public void testWriteReadPrimitiveRecord() throws Exception {
     String schemaPath = "/exampleSchema.avsc";
-    writeFileWithSimpleSchema(Option.empty());
+    writeFileWithSimpleSchema();
 
     Configuration conf = new Configuration();
     verifyMetadata(conf);
@@ -119,9 +121,8 @@ public abstract class TestHoodieReaderWriterBase {
   public void testWriteReadPrimitiveRecordWithVirtualField() throws Exception {
     String schemaPath = "/exampleSchema.avsc";
     HoodieTableConfig tableConfig = new HoodieTableConfig();
-    tableConfig.setValue(HoodieTableConfig.VIRTUAL_FIELDS, "_row_key");
-    tableConfig.setValue(HoodieTableConfig.KEY_GENERATOR_CLASS_NAME, "SimpleAvroKeyGenerator");
-    writeFileWithSimpleSchema(Option.of(new HoodieVirtualKeyInfo(tableConfig)));
+    tableConfig.setValue(HoodieTableConfig.VIRTUAL_FIELDS, HoodieRecord.RECORD_KEY_METADATA_FIELD);
+    writeFileWithSimpleSchema(Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig))));
 
     Configuration conf = new Configuration();
     verifyMetadata(conf);
@@ -194,6 +195,10 @@ public abstract class TestHoodieReaderWriterBase {
     writer.close();
   }
 
+  protected void writeFileWithSimpleSchema() throws Exception {
+    writeFileWithSimpleSchema(Option.empty());
+  }
+
   protected void verifySimpleRecords(Iterator<GenericRecord> iterator) {
     int index = 0;
     while (iterator.hasNext()) {
@@ -210,7 +215,7 @@ public abstract class TestHoodieReaderWriterBase {
     int index = 0;
     while (iterator.hasNext()) {
       GenericRecord record = iterator.next();
-      assertNull(record.get("_row_key"));
+      assertNull(record.get(HoodieRecord.RECORD_KEY_METADATA_FIELD));
       assertEquals(Integer.toString(index), record.get("time").toString());
       assertEquals(index, record.get("number"));
       index++;

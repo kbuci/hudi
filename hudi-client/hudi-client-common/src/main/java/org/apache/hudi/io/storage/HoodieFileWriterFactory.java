@@ -32,7 +32,6 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hudi.common.util.collection.PropertiesUtils;
 import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.parquet.avro.AvroSchemaConverter;
 
