@@ -19,6 +19,8 @@
 
 package org.apache.hudi.io.storage;
 
+import java.util.ArrayList;
+import java.util.TreeMap;
 import org.apache.hudi.common.bloom.BloomFilter;
 
 import org.apache.avro.Schema;
@@ -26,6 +28,9 @@ import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.common.model.EmptyHoodieRecordPayload;
+import org.apache.hudi.common.model.HoodieAvroRecord;
+import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.Option;
@@ -47,6 +52,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static org.apache.hudi.common.testutils.FileSystemTestUtils.RANDOM;
 import static org.apache.hudi.common.testutils.SchemaTestUtil.getSchemaFromResource;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -118,16 +124,35 @@ public abstract class TestHoodieReaderWriterBase {
   }
 
   @Test
-  public void testWriteReadPrimitiveRecordWithVirtualField() throws Exception {
-    String schemaPath = "/exampleSchema.avsc";
+  public void testWriteReadPrimitiveRecordWithVirtualHoodieKeyFields() throws Exception {
+    final String schemaPath = "/exampleSchemaWithMetaFields.avsc";
+    Schema avroSchema = getSchemaFromResource(TestHoodieOrcReaderWriter.class, schemaPath);
     HoodieTableConfig tableConfig = new HoodieTableConfig();
-    tableConfig.setValue(HoodieTableConfig.VIRTUAL_FIELDS, HoodieRecord.RECORD_KEY_METADATA_FIELD);
-    writeFileWithSimpleSchema(Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig))));
+    tableConfig.setValue(HoodieTableConfig.VIRTUAL_FIELDS,
+        HoodieRecord.RECORD_KEY_METADATA_FIELD +
+            ","
+            + HoodieRecord.PARTITION_PATH_METADATA_FIELD);
 
+
+    HoodieVirtualKeyInfo hoodieVirtualKeyInfo = new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig));
+    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, true, Option.of(hoodieVirtualKeyInfo));
+    for (int i = 0; i < NUM_RECORDS; i++) {
+      GenericRecord record = new GenericData.Record(avroSchema);
+      String key = String.format("%s%04d", "key", i);
+      record.put("_row_key", key);
+      record.put("time", Integer.toString(RANDOM.nextInt()));
+      record.put("number", i);
+      // payload does not matter. GenericRecord passed in is what matters
+      writer.writeAvroWithMetadata(new HoodieAvroRecord(new HoodieKey((String) record.get("_row_key"),
+          Integer.toString((Integer) record.get("number"))),
+          new EmptyHoodieRecordPayload()).getKey(), record);
+        // only HoodieKey will be looked up from the 2nd arg(HoodieRecord).
+    }
+    writer.close();
     Configuration conf = new Configuration();
     verifyMetadata(conf);
     verifySchema(conf, schemaPath);
-    verifySimpleRecordsWithVirtualField(createReader(conf).getRecordIterator());
+    verifySimpleRecordsWithVirtualHoodieKeyFields(createReader(conf).getRecordIterator());
   }
 
   @Test
@@ -181,9 +206,9 @@ public abstract class TestHoodieReaderWriterBase {
     verifyFilterRowKeys(createReader(conf));
   }
 
-  protected void writeFileWithSimpleSchema(Option<HoodieVirtualKeyInfo> hoodieVirtualKeyInfoOption) throws Exception {
+  protected void writeFileWithSimpleSchema() throws Exception {
     Schema avroSchema = getSchemaFromResource(TestHoodieReaderWriterBase.class, "/exampleSchema.avsc");
-    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, true, hoodieVirtualKeyInfoOption);
+    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, true, Option.empty());
     for (int i = 0; i < NUM_RECORDS; i++) {
       GenericRecord record = new GenericData.Record(avroSchema);
       String key = "key" + String.format("%02d", i);
@@ -193,10 +218,6 @@ public abstract class TestHoodieReaderWriterBase {
       writer.writeAvro(key, record);
     }
     writer.close();
-  }
-
-  protected void writeFileWithSimpleSchema() throws Exception {
-    writeFileWithSimpleSchema(Option.empty());
   }
 
   protected void verifySimpleRecords(Iterator<GenericRecord> iterator) {
@@ -211,14 +232,11 @@ public abstract class TestHoodieReaderWriterBase {
     }
   }
 
-  protected void verifySimpleRecordsWithVirtualField(Iterator<GenericRecord> iterator) {
-    int index = 0;
+  protected void verifySimpleRecordsWithVirtualHoodieKeyFields(Iterator<GenericRecord> iterator) {
     while (iterator.hasNext()) {
       GenericRecord record = iterator.next();
       assertNull(record.get(HoodieRecord.RECORD_KEY_METADATA_FIELD));
-      assertEquals(Integer.toString(index), record.get("time").toString());
-      assertEquals(index, record.get("number"));
-      index++;
+      assertNull(record.get(HoodieRecord.PARTITION_PATH_METADATA_FIELD));
     }
   }
 

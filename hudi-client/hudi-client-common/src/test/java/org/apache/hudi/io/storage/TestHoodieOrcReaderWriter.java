@@ -61,6 +61,7 @@ public class TestHoodieOrcReaderWriter extends TestHoodieReaderWriterBase {
     int maxFileSize = Integer.parseInt(HoodieStorageConfig.ORC_FILE_MAX_SIZE.defaultValue());
     HoodieOrcConfig config = new HoodieOrcConfig(conf, CompressionKind.ZLIB, orcStripSize, orcBlockSize, maxFileSize, filter);
     TaskContextSupplier mockTaskContextSupplier = Mockito.mock(TaskContextSupplier.class);
+
     String instantTime = "000";
     return new HoodieOrcWriter<>(instantTime, getFilePath(), config, avroSchema, mockTaskContextSupplier, hoodieVirtualKeyInfoOption);
   }

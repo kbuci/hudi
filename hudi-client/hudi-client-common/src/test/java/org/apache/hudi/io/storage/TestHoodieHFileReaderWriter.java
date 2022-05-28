@@ -249,7 +249,8 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     int index = 0;
     while (iterator.hasNext()) {
       GenericRecord record = iterator.next();
-      String key = "key" + String.format("%02d", expectedIds.get(index));
+      String key = "key" + String.format("%02d", expectedIds.
+          get(index));
       assertEquals(key, record.get("_row_key").toString());
       assertEquals(Integer.toString(expectedIds.get(index)), record.get("time").toString());
       assertEquals(expectedIds.get(index), record.get("number"));
