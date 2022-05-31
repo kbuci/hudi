@@ -95,6 +95,9 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
 
   @Override
   public void writeAvroWithMetadata(HoodieKey key, R avroRecord) throws IOException {
+    if (virtualFieldInfoOption.isPresent()) {
+      virtualFieldInfoOption.get().removeVirtualFieldsFromRecord(avroRecord);
+    }
     if (populateMetaFields) {
       prepRecordWithMetadata(key, avroRecord, instantTime,
           taskContextSupplier.getPartitionIdSupplier().get(), recordIndex, file.getName(), virtualFieldInfoOption);
@@ -107,6 +110,7 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
     }
   }
 
+
   @Override
   public boolean canWrite() {
     return getDataSize() < maxFileSize;
@@ -114,6 +118,9 @@ public class HoodieParquetWriter<T extends HoodieRecordPayload, R extends Indexe
 
   @Override
   public void writeAvro(String key, IndexedRecord object) throws IOException {
+    if (virtualFieldInfoOption.isPresent()) {
+      virtualFieldInfoOption.get().removeVirtualFieldsFromRecord(object);
+    }
     super.write(object);
     if (populateMetaFields && !isRecordKeyVirtual) {
       writeSupport.add(key);

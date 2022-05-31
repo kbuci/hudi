@@ -26,6 +26,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.CellComparatorImpl;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.keygen.SimpleAvroKeyGenerator;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
@@ -155,7 +156,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     if (isTestRecordKeyVirtual){
       HoodieTableConfig tableConfig = new HoodieTableConfig();
       tableConfig.setValue(HoodieTableConfig.VIRTUAL_FIELDS, HoodieRecord.RECORD_KEY_METADATA_FIELD);
-      hoodieVirtualKeyInfoOption = Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig)));
+      hoodieVirtualKeyInfoOption = Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig, avroSchema)));
     }
     HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, populateMetaFields, hoodieVirtualKeyInfoOption);
     List<String> keys = new ArrayList<>();

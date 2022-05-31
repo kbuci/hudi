@@ -331,12 +331,8 @@ public class HoodieMergeHandle<T extends HoodieRecordPayload, I, K, O> extends H
    * Go through an old record. Here if we detect a newer version shows up, we write the new one to the file.
    */
   public void write(GenericRecord oldRecord) {
-    String key;
-    if (hoodieVirtualFieldInfoOption.isPresent()){
-      key = hoodieVirtualFieldInfoOption.get().getRecordKey(oldRecord);
-    } else {
-      key = KeyGenUtils.getRecordKeyFromGenericRecord(oldRecord, keyGeneratorOpt);
-    }
+    String key = KeyGenUtils.getRecordKeyFromGenericRecord(oldRecord, keyGeneratorOpt);
+
     boolean copyOldRecord = true;
     if (keyToNewRecords.containsKey(key)) {
       // If we have duplicate records that we are updating, then the hoodie record will be deflated after

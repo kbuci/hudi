@@ -89,7 +89,7 @@ public class HoodieWriteableTestTable extends HoodieMetadataTestTable {
     this.filter = filter;
     this.populateMetaFields = metaClient.getTableConfig().populateMetaFields();
     if (metaClient.getTableConfig().hasVirtualFieldConfig()) {
-      this.hoodieVirtualFieldInfo = Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(metaClient.getTableConfig())));
+      this.hoodieVirtualFieldInfo = Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(metaClient.getTableConfig(), schema)));
     } else {
       this.hoodieVirtualFieldInfo = Option.empty();
     }

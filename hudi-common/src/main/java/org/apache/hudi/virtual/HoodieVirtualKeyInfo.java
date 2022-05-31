@@ -2,14 +2,16 @@ package org.apache.hudi.virtual;
 
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.generic.IndexedRecord;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.keygen.KeyGenerator;
 
-public final class HoodieVirtualKeyInfo {
+public class HoodieVirtualKeyInfo {
 
   private final HoodieVirtualKeyConfig hoodieVirtualKeyConfig;
   private final boolean recordKeyVirtual;
@@ -57,7 +59,7 @@ public final class HoodieVirtualKeyInfo {
     }
     Option<BaseKeyGenerator> generatorOption =  hoodieVirtualKeyConfig.getOptionalFieldGenerator(field);
     if (!generatorOption.isPresent()) {
-      throw new HoodieException("No generator present");
+      return null;
     }
     BaseKeyGenerator generator = generatorOption.get();
     if (field.equals(HoodieRecord.RECORD_KEY_METADATA_FIELD)){
@@ -69,9 +71,34 @@ public final class HoodieVirtualKeyInfo {
     return computeVirtualField(generator, record);
   }
 
+  public String getField(int field, GenericRecord record) {
+    if (!hoodieVirtualKeyConfig.isVirtualField(field)){
+      return (String) record.get(field);
+    }
+    Option<BaseKeyGenerator> generatorOption =  hoodieVirtualKeyConfig.getOptionalFieldGenerator(field);
+    if (!generatorOption.isPresent()) {
+      return null;
+    }
+    BaseKeyGenerator generator = generatorOption.get();
+    Schema schema = record.getSchema();
+    if (field == schema.getField(HoodieRecord.RECORD_KEY_METADATA_FIELD).pos()){
+      return generator.getRecordKey(record);
+    }
+    if (field == schema.getField(HoodieRecord.PARTITION_PATH_METADATA_FIELD).pos()){
+      return generator.getPartitionPath(record);
+    }
+    return computeVirtualField(generator, record);
+  }
+
   public Iterable<String> getFields(Iterable<String> fields, GenericRecord record) {
     return StreamSupport.stream(fields.spliterator(), false).map((field) -> getField(field, record)).collect(
         Collectors.toList());
+  }
+
+  public void removeVirtualFieldsFromRecord(IndexedRecord record) {
+    for (int virtualFieldIndex : hoodieVirtualKeyConfig.getVirtualFieldIndices()) {
+      record.put(virtualFieldIndex, null);
+    }
   }
 
   private static String computeVirtualField(KeyGenerator generator, GenericRecord record) {

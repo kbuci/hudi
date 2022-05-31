@@ -130,6 +130,9 @@ public class HoodieHFileWriter<T extends HoodieRecordPayload, R extends IndexedR
 
   @Override
   public void writeAvro(String recordKey, IndexedRecord record) throws IOException {
+    if (hoodieVirtualFieldInfoOption.isPresent()) {
+      hoodieVirtualFieldInfoOption.get().removeVirtualFieldsFromRecord(record);
+    }
     byte[] value = null;
     boolean isRecordSerialized = false;
     if (keyFieldSchema.isPresent()) {

@@ -50,8 +50,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
 import org.apache.hudi.hadoop.CachingPath;
 import org.apache.hudi.hadoop.SerializablePath;
-import org.apache.hudi.virtual.HoodieVirtualKeyConfig;
-import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -112,7 +110,6 @@ public class HoodieTableMetaClient implements Serializable {
   private HoodieArchivedTimeline archivedTimeline;
   private ConsistencyGuardConfig consistencyGuardConfig = ConsistencyGuardConfig.newBuilder().build();
   private FileSystemRetryConfig fileSystemRetryConfig = FileSystemRetryConfig.newBuilder().build();
-  private HoodieVirtualKeyInfo hoodieVirtualKeyInfo;
 
   private HoodieTableMetaClient(Configuration conf, String basePath, boolean loadActiveTimelineOnLoad,
                                 ConsistencyGuardConfig consistencyGuardConfig, Option<TimelineLayoutVersion> layoutVersion,
@@ -142,7 +139,6 @@ public class HoodieTableMetaClient implements Serializable {
       LOG.info("Loading Active commit timeline for " + basePath);
       getActiveTimeline();
     }
-    this.hoodieVirtualKeyInfo = new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig));
   }
 
   /**
@@ -258,10 +254,6 @@ public class HoodieTableMetaClient implements Serializable {
    */
   public String getBootstrapIndexByFileIdFolderNameFolderPath() {
     return basePath + Path.SEPARATOR + BOOTSTRAP_INDEX_BY_FILE_ID_FOLDER_PATH;
-  }
-
-  public HoodieVirtualKeyInfo getVirtualKeyInfo() {
-    return hoodieVirtualKeyInfo;
   }
 
   /**

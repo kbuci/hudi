@@ -100,6 +100,9 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
 
   @Override
   public void writeAvroWithMetadata(HoodieKey key, R avroRecord) throws IOException {
+    if (hoodieVirtualFieldInfoOption.isPresent()) {
+      hoodieVirtualFieldInfoOption.get().removeVirtualFieldsFromRecord(avroRecord);
+    }
     prepRecordWithMetadata(key, avroRecord, instantTime,
         taskContextSupplier.getPartitionIdSupplier().get(), RECORD_INDEX, file.getName(),
             hoodieVirtualFieldInfoOption);
@@ -113,6 +116,9 @@ public class HoodieOrcWriter<T extends HoodieRecordPayload, R extends IndexedRec
 
   @Override
   public void writeAvro(String recordKey, IndexedRecord object) throws IOException {
+    if (hoodieVirtualFieldInfoOption.isPresent()) {
+      hoodieVirtualFieldInfoOption.get().removeVirtualFieldsFromRecord(object);
+    }
     for (int col = 0; col < batch.numCols; col++) {
       ColumnVector colVector = batch.cols[col];
       final String thisField = fieldNames.get(col);
