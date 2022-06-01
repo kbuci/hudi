@@ -51,6 +51,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 

@@ -26,6 +26,8 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hbase.CellComparatorImpl;
+import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.keygen.SimpleAvroKeyGenerator;
 import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hudi.common.bootstrap.index.HFileBootstrapIndex;
@@ -35,10 +37,13 @@ import org.apache.hudi.common.model.EmptyHoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieAvroRecord;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.table.HoodieTableConfig;
 import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieIndexConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.virtual.HoodieVirtualKeyConfig;
+import org.apache.hudi.virtual.HoodieVirtualKeyInfo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -89,7 +94,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
 
   @Override
   protected HoodieFileWriter<GenericRecord> createWriter(
-      Schema avroSchema, boolean populateMetaFields) throws Exception {
+      Schema avroSchema, boolean populateMetaFields, Option<HoodieVirtualKeyInfo> hoodieVirtualKeyInfoOption) throws Exception {
     String instantTime = "000";
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath(DUMMY_BASE_PATH)
@@ -104,7 +109,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     when(partitionSupplier.get()).thenReturn(10);
 
     return HoodieFileWriterFactory.newHFileFileWriter(
-        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier);
+        instantTime, getFilePath(), writeConfig, avroSchema, conf, mockTaskContextSupplier, hoodieVirtualKeyInfoOption);
   }
 
   @Override
@@ -132,18 +137,28 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
 
   private static Stream<Arguments> populateMetaFieldsAndTestAvroWithMeta() {
     return Arrays.stream(new Boolean[][] {
-        {true, true},
-        {false, true},
-        {true, false},
-        {false, false}
+        {true, true, true},
+        {false, true, true},
+        {true, false, true},
+        {false, false, true},
+        {true, true, false},
+        {false, true, false},
+        {true, false, false},
+        {false, false, false}
     }).map(Arguments::of);
   }
 
   @ParameterizedTest
   @MethodSource("populateMetaFieldsAndTestAvroWithMeta")
-  public void testWriteReadHFileWithMetaFields(boolean populateMetaFields, boolean testAvroWithMeta) throws Exception {
+  public void testWriteReadHFileWithMetaFields(boolean populateMetaFields, boolean testAvroWithMeta, boolean isTestRecordKeyVirtual) throws Exception {
     Schema avroSchema = getSchemaFromResource(TestHoodieOrcReaderWriter.class, "/exampleSchemaWithMetaFields.avsc");
-    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, populateMetaFields);
+    Option<HoodieVirtualKeyInfo> hoodieVirtualKeyInfoOption = Option.empty();
+    if (isTestRecordKeyVirtual){
+      HoodieTableConfig tableConfig = new HoodieTableConfig();
+      tableConfig.setValue(HoodieTableConfig.VIRTUAL_FIELDS, HoodieRecord.RECORD_KEY_METADATA_FIELD);
+      hoodieVirtualKeyInfoOption = Option.of(new HoodieVirtualKeyInfo(new HoodieVirtualKeyConfig(tableConfig, avroSchema)));
+    }
+    HoodieFileWriter<GenericRecord> writer = createWriter(avroSchema, populateMetaFields, hoodieVirtualKeyInfoOption);
     List<String> keys = new ArrayList<>();
     Map<String, GenericRecord> recordMap = new TreeMap<>();
     for (int i = 0; i < 100; i++) {
@@ -187,7 +202,7 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
       assertEquals(expectedRecords, result);
 
       result.forEach(entry -> {
-        if (populateMetaFields && testAvroWithMeta) {
+        if (populateMetaFields && testAvroWithMeta && !isTestRecordKeyVirtual) {
           assertNotNull(entry.get(HoodieRecord.RECORD_KEY_METADATA_FIELD));
         } else {
           assertNull(entry.get(HoodieRecord.RECORD_KEY_METADATA_FIELD));
@@ -235,7 +250,8 @@ public class TestHoodieHFileReaderWriter extends TestHoodieReaderWriterBase {
     int index = 0;
     while (iterator.hasNext()) {
       GenericRecord record = iterator.next();
-      String key = "key" + String.format("%02d", expectedIds.get(index));
+      String key = "key" + String.format("%02d", expectedIds.
+          get(index));
       assertEquals(key, record.get("_row_key").toString());
       assertEquals(Integer.toString(expectedIds.get(index)), record.get("time").toString());
       assertEquals(expectedIds.get(index), record.get("number"));

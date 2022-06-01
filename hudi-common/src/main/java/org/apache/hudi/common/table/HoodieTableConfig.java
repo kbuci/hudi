@@ -180,6 +180,17 @@ public class HoodieTableConfig extends HoodieConfig {
       .withDocumentation("When enabled, populates all meta fields. When disabled, no meta fields are populated "
           + "and incremental queries will not be functional. This is only meant to be used for append only/immutable data for batch processing");
 
+  public static final String VIRTUAL_FIELDS_PREFIX = "hoodie.virtual.fields.";
+
+  public static final ConfigProperty<String> VIRTUAL_FIELDS = ConfigProperty
+      .key(VIRTUAL_FIELDS_PREFIX + "names")
+      .defaultValue("")
+      .withDocumentation("Comma delimited list of fields that should not be written to data files, even if "
+          + "hoodie.populate.fields is enabled");
+
+  public static final String VIRTUAL_FIELDS_GENERATORS_CONFIG = VIRTUAL_FIELDS_PREFIX + "generators.";
+  public static final String VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG =  VIRTUAL_FIELDS_PREFIX + "columns.";
+
   public static final ConfigProperty<String> KEY_GENERATOR_CLASS_NAME = ConfigProperty
       .key("hoodie.table.keygenerator.class")
       .noDefaultValue()
@@ -203,6 +214,7 @@ public class HoodieTableConfig extends HoodieConfig {
 
   public static final ConfigProperty<String> URL_ENCODE_PARTITIONING = KeyGeneratorOptions.URL_ENCODE_PARTITIONING;
   public static final ConfigProperty<String> HIVE_STYLE_PARTITIONING_ENABLE = KeyGeneratorOptions.HIVE_STYLE_PARTITIONING_ENABLE;
+  public static final ConfigProperty<String> KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED = KeyGeneratorOptions.KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED;
 
   public static final List<String> PERSISTED_CONFIG_LIST = Arrays.asList(
       Config.DATE_TIME_PARSER_PROP,
@@ -588,6 +600,23 @@ public class HoodieTableConfig extends HoodieConfig {
     return Boolean.parseBoolean(getStringOrDefault(POPULATE_META_FIELDS));
   }
 
+  public String virtualFields() {
+    return getStringOrDefault(VIRTUAL_FIELDS);
+  }
+
+  public String hoodieVirtualFieldsGeneratorsConfig(String virtualField) {
+    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_GENERATORS_CONFIG + virtualField).defaultValue(""));
+  }
+
+  public String hoodieVirtualFieldsColumnsNeededForGeneratorsConfig(String virtualField) {
+    return getStringOrDefault(ConfigProperty.key(VIRTUAL_FIELDS_COLUMNS_NEEDED_FOR_GENERATORS_CONFIG + virtualField).defaultValue(""));
+  }
+
+  public boolean hasVirtualFieldConfig() {
+    return !virtualFields().isEmpty();
+  }
+
+
   /**
    * @returns the record key field prop.
    */
@@ -605,6 +634,10 @@ public class HoodieTableConfig extends HoodieConfig {
 
   public String getUrlEncodePartitioning() {
     return getString(URL_ENCODE_PARTITIONING);
+  }
+
+  public String getKeyGeneratorConsistentLogicalTimestampEnabled() {
+   return getString(KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED);
   }
 
   public Boolean shouldDropPartitionColumns() {
