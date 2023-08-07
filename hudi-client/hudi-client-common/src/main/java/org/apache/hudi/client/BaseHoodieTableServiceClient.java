@@ -44,6 +44,7 @@ import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.CleanerUtils;
 import org.apache.hudi.common.util.ClusteringUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.config.HoodieCompactionConfig;
@@ -875,11 +876,14 @@ public abstract class BaseHoodieTableServiceClient<O> extends BaseHoodieClient i
    */
   @Deprecated
   public boolean rollback(final String commitInstantTime, Option<HoodiePendingRollbackInfo> pendingRollbackInfo, String rollbackInstantTime,
-                          boolean skipLocking) throws HoodieRollbackException {
+      boolean skipLocking) throws HoodieRollbackException {
     LOG.info("Begin rollback of instant " + commitInstantTime);
     final Timer.Context timerContext = this.metrics.getRollbackCtx();
     try {
       HoodieTable table = createTable(config, hadoopConf);
+      if (!skipLocking) {
+        return rollback(table, commitInstantTime, pendingRollbackInfo, rollbackInstantTime, timerContext);
+      }
       Option<HoodieInstant> commitInstantOpt = Option.fromJavaOptional(table.getActiveTimeline().getCommitsTimeline().getInstantsAsStream()
           .filter(instant -> HoodieActiveTimeline.EQUALS.test(instant.getTimestamp(), commitInstantTime))
           .findFirst());
@@ -898,10 +902,10 @@ public abstract class BaseHoodieTableServiceClient<O> extends BaseHoodieClient i
           // is set to false since they are already deleted.
           // Execute rollback
           HoodieRollbackMetadata rollbackMetadata = commitInstantOpt.isPresent()
-              ? table.rollback(context, rollbackInstantTime, commitInstantOpt.get(), true, skipLocking)
+              ? table.rollback(context, rollbackInstantTime, commitInstantOpt.get(), true, true)
               : table.rollback(context, rollbackInstantTime, new HoodieInstant(
-                  true, rollbackPlanOption.get().getInstantToRollback().getAction(), commitInstantTime),
-              false, skipLocking);
+                      true, rollbackPlanOption.get().getInstantToRollback().getAction(), commitInstantTime),
+                  false, true);
           if (timerContext != null) {
             long durationInMs = metrics.getDurationInMs(timerContext.stop());
             metrics.updateRollbackMetrics(durationInMs, rollbackMetadata.getTotalFilesDeleted());
@@ -916,6 +920,158 @@ public abstract class BaseHoodieTableServiceClient<O> extends BaseHoodieClient i
       }
     } catch (Exception e) {
       throw new HoodieRollbackException("Failed to rollback " + config.getBasePath() + " commits " + commitInstantTime, e);
+    }
+  }
+
+  private boolean tryToClaimAndStartHeartbeat(final String instantTime) throws IOException {
+    try {
+      txnManager.beginTransaction(Option.empty(), txnManager.getLastCompletedTransactionOwner());
+      if (heartbeatClient.isHeartbeatExpired(instantTime)) {
+        heartbeatClient.stop(instantTime);
+        heartbeatClient.start(instantTime);
+        return true;
+      } else {
+        return false;
+      }
+    } finally {
+      txnManager.endTransaction(Option.empty());
+    }
+  }
+
+  private void startAndClaimHeartbeatForRollback(String rollbackInstantTime) {
+    boolean rollbackHeartbeatClaimedAndStarted = false;
+    int heartbeatClaimAttemptsLeft = Math.max(0, config.getHoodieClientHeartbeatTolerableMisses());
+    while (true) {
+      try {
+        rollbackHeartbeatClaimedAndStarted = tryToClaimAndStartHeartbeat(rollbackInstantTime);
+      } catch (IOException e) {
+        throw new HoodieRollbackException(String.format("Could not access last heartbeat for %s", rollbackInstantTime));
+      }
+      if (rollbackHeartbeatClaimedAndStarted || heartbeatClaimAttemptsLeft <= 0) {
+        break;
+      }
+      try {
+        Thread.sleep(config.getHoodieClientHeartbeatIntervalInMs());
+      } catch (InterruptedException e) {
+        LOG.error("Could not complete wait due to interruption " + e);
+      }
+      heartbeatClaimAttemptsLeft -= 1;
+    }
+    if (!rollbackHeartbeatClaimedAndStarted) {
+      throw new HoodieRollbackException(
+          String.format("Timeout while waiting for existing rollback for %s to complete", rollbackInstantTime)
+      );
+    }
+  }
+
+  /**
+   * @param commitInstantTime   Instant time of the commit
+   * @param pendingRollbackInfo pending rollback instant and plan if rollback failed from previous attempt.
+   * @param skipLocking         if this is triggered by another parent transaction, locking can be skipped.
+   * @throws HoodieRollbackException if rollback cannot be performed successfully
+   * @Deprecated Rollback the inflight record changes with the given commit time. This
+   * will be removed in future in favor of {@link BaseHoodieWriteClient#restoreToInstant(String, boolean)
+   */
+  private boolean rollback(HoodieTable table, final String commitInstantTime, Option<HoodiePendingRollbackInfo> pendingRollbackInfo,
+      String rollbackInstantTime, Timer.Context timerContext)
+      throws HoodieRollbackException {
+    final Option<HoodieInstant> commitInstantOpt;
+    final String rollbackInstantTimeToUse;
+    final HoodieInstant instantToRollback;
+    try {
+      // Acquire table lock and reload timeline in order to avoid 2+ rollback plans from being scheduled
+      // or an already-completed rollback plan from being re-executed by this call.
+      txnManager.beginTransaction(Option.empty(), txnManager.getLastCompletedTransactionOwner());
+      table.getMetaClient().reloadActiveTimeline();
+      final Option<HoodiePendingRollbackInfo> previousAttemptedRollback;
+      // We need to check the timeline for the latest pending rollback, in case a concurrent rollback before
+      // has already executed pendingRollbackInfo
+      previousAttemptedRollback = getPendingRollbackInfo(table.getMetaClient(), commitInstantTime, false);
+      if (pendingRollbackInfo.isPresent()) {
+        // If a pendingRollbackInfo was passed in, verify that it is the same as the pending rollback that was just observed. If not, then
+        // abort the rollback
+        previousAttemptedRollback.orElseThrow(
+            () -> new HoodieRollbackException(
+                String.format("Pending rollback instant %s no longer inflight", pendingRollbackInfo.get().getRollbackInstant().getTimestamp())
+            )
+        );
+        // This will only fail if the table is in an illegal state, where there are 2+ rollback plans for one instant. This
+        // check shouldn't be necessary, but just keeping it here for now to demonstrate
+        ValidationUtils.checkArgument(previousAttemptedRollback.get().getRollbackInstant().getTimestamp().equals(
+            pendingRollbackInfo.get().getRollbackInstant().getTimestamp())
+        );
+      }
+      rollbackInstantTimeToUse = previousAttemptedRollback
+          .map(pendingRollback -> pendingRollback.getRollbackInstant().getTimestamp())
+          .orElse(rollbackInstantTime);
+      commitInstantOpt = Option.fromJavaOptional(
+          table.getActiveTimeline()
+              .getCommitsTimeline()
+              .getInstantsAsStream()
+              .filter(instant -> HoodieActiveTimeline.EQUALS.test(instant.getTimestamp(), commitInstantTime))
+              .findFirst()
+      );
+      if (previousAttemptedRollback.isPresent()) {
+        // A previous pending rollback plan still needs to be executed and completed even if the instant to rollback
+        // is no longer in active timeline. This can be safely done by re-creating the instant to rollback and
+        // configuring the rollback execution later on to not delete the instants during rollback.
+        instantToRollback = commitInstantOpt.orElseGet(() -> new HoodieInstant(
+            true, previousAttemptedRollback.get().getRollbackPlan().getInstantToRollback().getAction(), commitInstantTime)
+        );
+      } else {
+        // A new rollback can only be scheduled if the commit to rollback is still in the active timeline
+        if (!commitInstantOpt.isPresent()) {
+          LOG.warn("Cannot find instant " + commitInstantTime + " in the timeline, for rollback");
+          return false;
+        }
+        instantToRollback = commitInstantOpt.get();
+        Option<HoodieRollbackPlan> newRollbackPlanOption =
+            table.scheduleRollback(context, rollbackInstantTimeToUse, commitInstantOpt.get(),
+                false, config.shouldRollbackUsingMarkers(), false);
+        newRollbackPlanOption.orElseThrow(() -> new HoodieRollbackException(
+            String.format("Failed to schedule rollback of %s at instant time %s", commitInstantTime, rollbackInstantTimeToUse))
+        );
+      }
+    } catch (Exception e) {
+      throw new HoodieRollbackException("Failed to use/create rollback plan for " + config.getBasePath() + " commit " + commitInstantTime, e);
+    } finally {
+      txnManager.endTransaction(txnManager.getCurrentTransactionOwner());
+    }
+
+    // Start and claim the rollback heart to ensure that no other ongoing caller is executing this rollback instant
+    // If the rollback instant time has just been newly scheduled these heartbeat checks will still correctly
+    // show the (non-existent) heartbeat as expired
+    startAndClaimHeartbeatForRollback(rollbackInstantTimeToUse);
+    // In case the rollback instant heartbeat was previously expired due to rollback being completed, reload the timeline again
+    // to check and finish rollback call if the rollback instant is no longer incomplete.
+    table.getMetaClient().reloadActiveTimeline();
+    if (!getPendingRollbackInfo(table.getMetaClient(), commitInstantTime, false).isPresent()) {
+      LOG.info(String.format("Rollback of %s at %s already completed by ongoing rollback call", instantToRollback, rollbackInstantTimeToUse));
+      heartbeatClient.stop(rollbackInstantTimeToUse);
+      return false;
+    }
+    // Check if a recently failed rollback attempt (after rollback plan had been assigned but before the rollback heartbeat was started)
+    // has deleted the instant to rollback
+    final boolean deleteInstantsDuringRollback = table
+        .getActiveTimeline()
+        .getCommitsTimeline()
+        .getInstantsAsStream()
+        .filter(instant -> HoodieActiveTimeline.EQUALS.test(instant.getTimestamp(), commitInstantTime))
+        .findFirst()
+        .isPresent();
+    // Execute the previously assigned rollback plan
+    try {
+      LOG.info(String.format("Begin rollback of instant %s at instantTime %s", commitInstantTime, rollbackInstantTimeToUse));
+      HoodieRollbackMetadata rollbackMetadata = table.rollback(context, rollbackInstantTimeToUse, instantToRollback, deleteInstantsDuringRollback, false);
+      if (timerContext != null) {
+        long durationInMs = metrics.getDurationInMs(timerContext.stop());
+        metrics.updateRollbackMetrics(durationInMs, rollbackMetadata.getTotalFilesDeleted());
+      }
+      return true;
+    } catch (Exception e) {
+      throw new HoodieRollbackException("Failed to execute rollback " + config.getBasePath() + " commits " + commitInstantTime, e);
+    } finally {
+      heartbeatClient.stop(rollbackInstantTimeToUse);
     }
   }
 
