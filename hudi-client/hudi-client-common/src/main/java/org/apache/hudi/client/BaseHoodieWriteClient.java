@@ -1165,7 +1165,6 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     preWrite(compactionInstantTime, WriteOperationType.COMPACT, table.getMetaClient());
     HoodieWriteMetadata compactMetadata = tableServiceClient.compact(compactionInstantTime, shouldComplete);
     this.heartbeatClient.stop(compactionInstantTime);
-    this.heartbeatClient.getHeartbeat(compactionInstantTime)
     return compactMetadata;
 
   }
