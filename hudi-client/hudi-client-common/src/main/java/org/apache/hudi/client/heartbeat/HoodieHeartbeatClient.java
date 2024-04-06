@@ -161,7 +161,7 @@ public class HoodieHeartbeatClient implements AutoCloseable, Serializable {
    * @param instantTime The instant time for the heartbeat.
    */
   public void start(String instantTime) {
-    LOG.info("Received request to start heartbeat for instant time " + instantTime);
+    LOG.error("Received request to start heartbeat for instant time " + instantTime);
     Heartbeat heartbeat = instantToHeartbeatMap.get(instantTime);
     ValidationUtils.checkArgument(heartbeat == null || !heartbeat.isHeartbeatStopped(), "Cannot restart a stopped heartbeat for " + instantTime);
     if (heartbeat != null && heartbeat.isHeartbeatStarted()) {

@@ -30,6 +30,7 @@ import org.apache.hudi.callback.common.HoodieWriteCommitCallbackMessage;
 import org.apache.hudi.callback.util.HoodieCommitCallbackFactory;
 import org.apache.hudi.client.embedded.EmbeddedTimelineService;
 import org.apache.hudi.client.heartbeat.HeartbeatUtils;
+import org.apache.hudi.client.heartbeat.HoodieHeartbeatClient;
 import org.apache.hudi.client.utils.TransactionUtils;
 import org.apache.hudi.common.HoodiePendingRollbackInfo;
 import org.apache.hudi.common.config.HoodieCommonConfig;
@@ -1137,7 +1138,8 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
    */
   protected HoodieWriteMetadata<O> compact(String compactionInstantTime, boolean shouldComplete) {
     HoodieTable table = createTable(config, context.getHadoopConf().get());
-    Option<HoodieInstant> instantToCompactOption = Option.fromJavaOptional(table.getActiveTimeline().getCommitsTimeline()
+    Option<HoodieInstant> instantToCompactOption = Option.fromJavaOptional(table.getActiveTimeline()
+        .filterCompletedAndCompactionInstants()
         .getInstants()
         .stream()
         .filter(instant -> HoodieActiveTimeline.EQUALS.test(instant.getTimestamp(), compactionInstantTime))
@@ -1149,7 +1151,8 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
       // compact rollbacks from running concurrently to compact commits.
       txnManager.beginTransaction(instantToCompactOption, txnManager.getLastCompletedTransactionOwner());
       try {
-        if (!this.heartbeatClient.isHeartbeatExpired(compactionInstantTime)) {
+        if (HoodieHeartbeatClient.heartbeatExists(fs, basePath, compactionInstantTime)
+            && !this.heartbeatClient.isHeartbeatExpired(compactionInstantTime)) {
           throw new HoodieLockException("Cannot compact instant " + compactionInstantTime + " due to heartbeat by existing job");
         }
       } catch (IOException e) {
@@ -1162,6 +1165,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     preWrite(compactionInstantTime, WriteOperationType.COMPACT, table.getMetaClient());
     HoodieWriteMetadata compactMetadata = tableServiceClient.compact(compactionInstantTime, shouldComplete);
     this.heartbeatClient.stop(compactionInstantTime);
+    this.heartbeatClient.getHeartbeat(compactionInstantTime)
     return compactMetadata;
 
   }
