@@ -1151,8 +1151,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
       // compact rollbacks from running concurrently to compact commits.
       txnManager.beginTransaction(instantToCompactOption, txnManager.getLastCompletedTransactionOwner());
       try {
-        if (HoodieHeartbeatClient.heartbeatExists(fs, basePath, compactionInstantTime)
-            && !this.heartbeatClient.isHeartbeatExpired(compactionInstantTime)) {
+        if (!this.heartbeatClient.isHeartbeatExpired(compactionInstantTime)) {
           throw new HoodieLockException("Cannot compact instant " + compactionInstantTime + " due to heartbeat by existing job");
         }
       } catch (IOException e) {
@@ -1164,7 +1163,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     }
     preWrite(compactionInstantTime, WriteOperationType.COMPACT, table.getMetaClient());
     HoodieWriteMetadata compactMetadata = tableServiceClient.compact(compactionInstantTime, shouldComplete);
-    this.heartbeatClient.stop(compactionInstantTime);
+    this.heartbeatClient.stop(compactionInstantTime, true);
     return compactMetadata;
 
   }
@@ -1209,7 +1208,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     }
     preWrite(logCompactionInstantTime, WriteOperationType.LOG_COMPACT, table.getMetaClient());
     HoodieWriteMetadata logCompactMetadata = tableServiceClient.logCompact(logCompactionInstantTime, shouldComplete);
-    this.heartbeatClient.stop(logCompactionInstantTime);
+    this.heartbeatClient.stop(logCompactionInstantTime, true);
     return logCompactMetadata;
   }
 

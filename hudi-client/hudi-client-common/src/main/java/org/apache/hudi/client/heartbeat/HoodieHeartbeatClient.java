@@ -161,7 +161,7 @@ public class HoodieHeartbeatClient implements AutoCloseable, Serializable {
    * @param instantTime The instant time for the heartbeat.
    */
   public void start(String instantTime) {
-    LOG.error("Received request to start heartbeat for instant time " + instantTime);
+    LOG.info("Received request to start heartbeat for instant time " + instantTime);
     Heartbeat heartbeat = instantToHeartbeatMap.get(instantTime);
     ValidationUtils.checkArgument(heartbeat == null || !heartbeat.isHeartbeatStopped(), "Cannot restart a stopped heartbeat for " + instantTime);
     if (heartbeat != null && heartbeat.isHeartbeatStarted()) {
@@ -183,15 +183,25 @@ public class HoodieHeartbeatClient implements AutoCloseable, Serializable {
    * Stops the heartbeat and deletes the heartbeat file for the specified instant.
    *
    * @param instantTime The instant time for the heartbeat.
+   * @param removeHeartbeatFromCurrentWriter If the current writer should remove the heartbeat (if present).
+   * This is needed to allow the current writer to try starting the heartbeat again.
+   *
    * @throws HoodieException
    */
-  public void stop(String instantTime) throws HoodieException {
+  public void stop(String instantTime, boolean removeHeartbeatFromCurrentWriter) throws HoodieException {
     Heartbeat heartbeat = instantToHeartbeatMap.get(instantTime);
     if (isHeartbeatStarted(heartbeat)) {
       stopHeartbeatTimer(heartbeat);
       HeartbeatUtils.deleteHeartbeatFile(fs, basePath, instantTime);
       LOG.info("Deleted heartbeat file for instant " + instantTime);
     }
+    if (removeHeartbeatFromCurrentWriter) {
+      instantToHeartbeatMap.remove(instantTime);
+    }
+  }
+
+  public void stop(String instantTime) throws HoodieException {
+    stop(instantTime, false);
   }
 
   /**
