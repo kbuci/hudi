@@ -32,6 +32,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * All the metadata that gets stored along with a commit.
@@ -82,6 +85,12 @@ public class HoodieReplaceCommitMetadata extends HoodieCommitMetadata {
       partitionToReplaceFileIds.remove(null);
     }
     return JsonUtils.getObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(this);
+  }
+
+  @Override
+  public Set<String> getWritePartitionPathsWithExistingFileGroupsModified() {
+    return Stream.concat(super.getWritePartitionPathsWithExistingFileGroupsModified().stream(),
+        getPartitionToReplaceFileIds().keySet().stream()).collect(Collectors.toSet());
   }
 
   public static <T> T fromJsonString(String jsonStr, Class<T> clazz) throws Exception {
