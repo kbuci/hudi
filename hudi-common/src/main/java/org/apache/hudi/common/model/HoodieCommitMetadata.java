@@ -501,7 +501,7 @@ public class HoodieCommitMetadata implements Serializable {
     return new HashSet<>(partitionToWriteStats.keySet());
   }
 
-  public Set<String> getWritePartitionPathsWithExistingFileGroupsModified() {
+  public Set<String> getWritePartitionPathsWithUpdatedFileGroups() {
     return getPartitionToWriteStats()
         .entrySet()
         .stream()
