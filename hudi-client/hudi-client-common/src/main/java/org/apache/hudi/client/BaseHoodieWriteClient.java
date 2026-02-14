@@ -1725,7 +1725,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
     }
     switch (policy) {
       case "clean":
-        tableServiceClient.clean(Option.of(metaClient.createNewInstantTime(false)), true);
+        tableServiceClient.clean(Option.empty(), true);
         break;
       case "rollback_failed_writes":
         tableServiceClient.rollbackFailedWrites(metaClient);
