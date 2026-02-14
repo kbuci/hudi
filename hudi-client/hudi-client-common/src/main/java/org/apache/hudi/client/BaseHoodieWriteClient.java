@@ -1046,6 +1046,7 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
       // unclear what instant to use, since upgrade does have a given instant.
       executeUsingTxnManager(Option.empty(), () -> tryUpgrade(metaClient, Option.empty()));
     }
+    runPreWriteCleanerPolicy(metaClient);
     CleanerUtils.rollbackFailedWrites(config.getFailedWritesCleanPolicy(),
         HoodieTimeline.COMMIT_ACTION, () -> tableServiceClient.rollbackFailedWrites(metaClient));
 
@@ -1715,5 +1716,22 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
         throw new HoodieException(String.format("cannot find schema for current table: %s", config.getBasePath()));
       }
     });
+  }
+
+  private void runPreWriteCleanerPolicy(HoodieTableMetaClient metaClient) {
+    String policy = config.getPreWriteCleanerPolicy();
+    if (policy == null || policy.isEmpty()) {
+      return;
+    }
+    switch (policy) {
+      case "clean":
+        tableServiceClient.clean(Option.of(metaClient.createNewInstantTime(false)), true);
+        break;
+      case "rollback_failed_writes":
+        tableServiceClient.rollbackFailedWrites(metaClient);
+        break;
+      default:
+        break;
+    }
   }
 }
