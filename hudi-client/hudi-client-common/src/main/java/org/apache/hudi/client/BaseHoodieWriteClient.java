@@ -1720,6 +1720,10 @@ public abstract class BaseHoodieWriteClient<T, I, K, O> extends BaseHoodieClient
   }
 
   private void runPreWriteCleanerPolicy(HoodieTableMetaClient metaClient) {
+    if (!config.areTableServicesEnabled()) {
+      log.info("Skipping pre-write cleaner policy since table services are disabled");
+      return;
+    }
     HoodiePreWriteCleanerPolicy policy = config.getPreWriteCleanerPolicy();
     if (policy.isNone()) {
       return;
