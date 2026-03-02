@@ -273,6 +273,35 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
     Assertions.assertEquals(0, clusteringGroups.size());
   }
 
+  @Test
+  public void testSingleFileGroupClusteredWhenSortColumnsSet() {
+    HoodieWriteConfig config = HoodieWriteConfig.newBuilder()
+        .withPath("")
+        .withClusteringConfig(HoodieClusteringConfig.newBuilder()
+            .withClusteringPlanStrategyClass(SparkSizeBasedClusteringPlanStrategy.class.getName())
+            .withClusteringMaxBytesInGroup(2000)
+            .withClusteringTargetFileMaxBytes(1000)
+            .withClusteringPlanSmallFileLimit(500)
+            .withSingleGroupClusteringEnabled(false)
+            .withClusteringSortColumns("col1,col2")
+            .build())
+        .build();
+
+    SparkSizeBasedClusteringPlanStrategy planStrategy = new SparkSizeBasedClusteringPlanStrategy(table, context, config);
+
+    ArrayList<FileSlice> fileSlices = new ArrayList<>();
+    fileSlices.add(createFileSlice(200));
+
+    Stream<HoodieClusteringGroup> clusteringGroupStream = (Stream<HoodieClusteringGroup>) planStrategy.buildClusteringGroupsForPartition("p0", fileSlices).getLeft();
+    List<HoodieClusteringGroup> clusteringGroups = clusteringGroupStream.collect(Collectors.toList());
+
+    // Even though single group clustering is disabled, the presence of sort columns
+    // means all groups (including single file groups) should still be clustered
+    Assertions.assertEquals(1, clusteringGroups.size());
+    Assertions.assertEquals(1, clusteringGroups.get(0).getSlices().size());
+    Assertions.assertEquals(1, clusteringGroups.get(0).getNumOutputFileGroups());
+  }
+
   private FileSlice createFileSlice(long baseFileSize) {
     return createFileSliceWithCommitTime(baseFileSize, "001");
   }
