@@ -939,6 +939,12 @@ public class HoodieWriteConfig extends HoodieConfig {
       .withDocumentation("Flag to indicate whether to ignore any non exception error (e.g. write status error)."
           + "By default true for backward compatibility.");
 
+  public static final ConfigProperty<String> APPLICATION_ID = ConfigProperty
+      .key("hoodie.write.application.id")
+      .defaultValue("Unknown")
+      .markAdvanced()
+      .withDocumentation("Application identifier (e.g. Spark application id) used to populate lock metadata so lock holders can be identified.");
+
   /**
    * Config key with boolean value that indicates whether record being written during MERGE INTO Spark SQL
    * operation are already prepped.
@@ -969,7 +975,6 @@ public class HoodieWriteConfig extends HoodieConfig {
   private HoodieTimeGeneratorConfig timeGeneratorConfig;
   private HoodieIndexingConfig indexingConfig;
   private final EngineType engineType;
-  private String applicationId = "Unknown";
 
   /**
    * @deprecated Use {@link #TBL_NAME} and its methods instead
@@ -2724,11 +2729,17 @@ public class HoodieWriteConfig extends HoodieConfig {
   }
 
   public String getApplicationId() {
-    return applicationId;
+    return getStringOrDefault(APPLICATION_ID);
   }
 
-  public void setApplicationId(String appId) {
-    applicationId = appId;
+  /**
+   * Returns a new {@link HoodieWriteConfig} with the given application id set.
+   */
+  public HoodieWriteConfig withApplicationId(String appId) {
+    Properties props = new Properties();
+    props.putAll(getProps());
+    props.setProperty(APPLICATION_ID.key(), appId);
+    return new HoodieWriteConfig(this.engineType, props);
   }
 
   public ConflictResolutionStrategy getWriteConflictResolutionStrategy() {
@@ -3464,6 +3475,11 @@ public class HoodieWriteConfig extends HoodieConfig {
 
     public Builder withReleaseResourceEnabled(boolean enabled) {
       writeConfig.setValue(RELEASE_RESOURCE_ENABLE, Boolean.toString(enabled));
+      return this;
+    }
+
+    public Builder withApplicationId(String appId) {
+      writeConfig.setValue(APPLICATION_ID, appId);
       return this;
     }
 
