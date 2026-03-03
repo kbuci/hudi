@@ -69,8 +69,7 @@ public abstract class PartitionAwareClusteringPlanStrategy<T,I,K,O> extends Clus
     List<Pair<List<FileSlice>, Integer>> fileSliceGroups = new ArrayList<>();
     List<FileSlice> currentGroup = new ArrayList<>();
 
-    Comparator<FileSlice> sortedFileSlicesComparator = ClusteringFileSliceComparator.buildComparator(
-        writeConfig.getFileSlicesSortBy(), writeConfig.getParquetMaxFileSize());
+    Comparator<FileSlice> sortedFileSlicesComparator = ClusteringFileSliceComparator.buildComparator(writeConfig);
     List<FileSlice> sortedFileSlices = new ArrayList<>(fileSlices);
     sortedFileSlices.sort(sortedFileSlicesComparator);
 

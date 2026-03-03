@@ -19,6 +19,7 @@
 package org.apache.hudi.table.action.cluster;
 
 import org.apache.hudi.common.model.FileSlice;
+import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieClusteringException;
 
 import java.util.Arrays;
@@ -27,21 +28,15 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Builds a {@link Comparator} for {@link FileSlice} based on a comma-separated list of
- * {@link ClusteringFileSliceSortByField} values. The comparators for each field are combined
- * in the order specified, so earlier fields take priority.
+ * Builds a {@link Comparator} for {@link FileSlice} based on the
+ * {@link org.apache.hudi.config.HoodieClusteringConfig#PLAN_STRATEGY_FILE_SLICES_SORT_BY} config.
+ * The comparators for each field are combined in the order specified, so earlier fields take priority.
  */
 public class ClusteringFileSliceComparator {
 
-  /**
-   * Parses the comma-separated {@code sortByFields} string into individual
-   * {@link ClusteringFileSliceSortByField} values and builds a composite comparator.
-   *
-   * @param sortByFields    comma-separated list of sort fields (e.g. "INSTANT_TIME,SIZE")
-   * @param defaultFileSize fallback file size used when a file slice has no base file
-   * @return a composite {@link Comparator} for {@link FileSlice}
-   */
-  public static Comparator<FileSlice> buildComparator(String sortByFields, long defaultFileSize) {
+  public static Comparator<FileSlice> buildComparator(HoodieWriteConfig config) {
+    String sortByFields = config.getFileSlicesSortBy();
+
     List<ClusteringFileSliceSortByField> fields = Arrays.stream(sortByFields.split(","))
         .map(String::trim)
         .map(s -> ClusteringFileSliceSortByField.valueOf(s.toUpperCase()))
@@ -51,21 +46,21 @@ public class ClusteringFileSliceComparator {
       throw new HoodieClusteringException("At least one sort field must be specified in: " + sortByFields);
     }
 
-    Comparator<FileSlice> comparator = comparatorForField(fields.get(0), defaultFileSize);
+    Comparator<FileSlice> comparator = comparatorForField(fields.get(0), config);
     for (int i = 1; i < fields.size(); i++) {
-      comparator = comparator.thenComparing(comparatorForField(fields.get(i), defaultFileSize));
+      comparator = comparator.thenComparing(comparatorForField(fields.get(i), config));
     }
     return comparator;
   }
 
-  private static Comparator<FileSlice> comparatorForField(ClusteringFileSliceSortByField field, long defaultFileSize) {
+  private static Comparator<FileSlice> comparatorForField(ClusteringFileSliceSortByField field, HoodieWriteConfig config) {
     switch (field) {
       case INSTANT_TIME:
         return Comparator.comparing(fileSlice ->
             fileSlice.getBaseFile().map(baseFile -> baseFile.getCommitTime()).orElse(""));
       case SIZE:
         return Comparator.comparing(
-            (FileSlice fileSlice) -> fileSlice.getBaseFile().map(baseFile -> baseFile.getFileSize()).orElse(defaultFileSize),
+            (FileSlice fileSlice) -> fileSlice.getBaseFile().map(baseFile -> baseFile.getFileSize()).orElse(config.getParquetMaxFileSize()),
             Comparator.reverseOrder());
       default:
         throw new HoodieClusteringException("Unknown file slice sort field: " + field);
