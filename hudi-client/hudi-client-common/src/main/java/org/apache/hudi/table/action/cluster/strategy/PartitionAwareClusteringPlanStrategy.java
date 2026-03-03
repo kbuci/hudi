@@ -31,6 +31,7 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.IncrementalPartitionAwareStrategy;
+import org.apache.hudi.table.action.cluster.ClusteringFileSliceComparator;
 import org.apache.hudi.table.action.cluster.ClusteringPlanActionExecutor;
 import org.apache.hudi.table.action.cluster.ClusteringPlanPartitionFilter;
 import org.apache.hudi.util.Lazy;
@@ -68,15 +69,8 @@ public abstract class PartitionAwareClusteringPlanStrategy<T,I,K,O> extends Clus
     List<Pair<List<FileSlice>, Integer>> fileSliceGroups = new ArrayList<>();
     List<FileSlice> currentGroup = new ArrayList<>();
 
-    // Sort file slices by instant time (when earlier-instants-first) and size before dividing,
-    // so that older data files are clustered first and dividing is more compact
-    Comparator<FileSlice> sortedFileSlicesComparator = Comparator
-        .comparing((FileSlice fileSlice) -> fileSlice.getBaseFile()
-            .map(baseFile -> writeConfig.isEarlierInstantsFirst() ? baseFile.getCommitTime() : "").orElse(""))
-        .thenComparing(
-            (fileSlice -> fileSlice.getBaseFile()
-                .map(baseFile -> baseFile.getFileSize()).orElse(writeConfig.getParquetMaxFileSize())),
-            Comparator.reverseOrder());
+    Comparator<FileSlice> sortedFileSlicesComparator = ClusteringFileSliceComparator.buildComparator(
+        writeConfig.getFileSlicesSortBy(), writeConfig.getParquetMaxFileSize());
     List<FileSlice> sortedFileSlices = new ArrayList<>(fileSlices);
     sortedFileSlices.sort(sortedFileSlicesComparator);
 

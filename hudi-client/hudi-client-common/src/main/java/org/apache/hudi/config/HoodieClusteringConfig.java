@@ -217,13 +217,16 @@ public class HoodieClusteringConfig extends HoodieConfig {
       .sinceVersion("0.14.0")
       .withDocumentation("Whether to generate clustering plan when there is only one file group involved, by default true");
 
-  public static final ConfigProperty<Boolean> EARLIER_INSTANTS_FIRST = ConfigProperty
-      .key("hoodie.clustering.earlier_instants_first")
-      .defaultValue(false)
+  public static final ConfigProperty<String> PLAN_STRATEGY_FILE_SLICES_SORT_BY = ConfigProperty
+      .key(CLUSTERING_STRATEGY_PARAM_PREFIX + "file.slices.sort.by")
+      .defaultValue("SIZE")
       .markAdvanced()
-      .sinceVersion("0.14.0")
-      .withDocumentation("When true, sort file slices by commit time (earlier first) then by file size when creating "
-          + "clustering groups so that older data files are clustered first (e.g. to reduce stitching lag). When false, sort by file size only.");
+      .sinceVersion("1.2.0")
+      .withDocumentation("Comma-separated list of fields to sort file slices by when packing files together within a partition "
+          + "to create clustering groups. "
+          + "Available fields: INSTANT_TIME (sort by commit time ascending, so that older data files are clustered first), "
+          + "SIZE (sort by file size descending). For example, 'INSTANT_TIME,SIZE' sorts by commit time first then by size. "
+          + "Default 'SIZE' sorts by file size only.");
 
   public static final ConfigProperty<String> PLAN_STRATEGY_SORT_COLUMNS = ConfigProperty
       .key(CLUSTERING_STRATEGY_PARAM_PREFIX + "sort.columns")
@@ -592,8 +595,8 @@ public class HoodieClusteringConfig extends HoodieConfig {
       return this;
     }
 
-    public Builder withEarlierInstantsFirst(Boolean earlierInstantsFirst) {
-      clusteringConfig.setValue(EARLIER_INSTANTS_FIRST, String.valueOf(earlierInstantsFirst));
+    public Builder withFileSlicesSortBy(String sortByFields) {
+      clusteringConfig.setValue(PLAN_STRATEGY_FILE_SLICES_SORT_BY, sortByFields);
       return this;
     }
 

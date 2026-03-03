@@ -84,7 +84,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
   }
 
   @Test
-  public void testEarlierInstantsFirstEnabled() {
+  public void testSortByInstantTimeThenSize() {
     HoodieWriteConfig config = HoodieWriteConfig.newBuilder()
         .withPath("")
         .withClusteringConfig(HoodieClusteringConfig.newBuilder()
@@ -92,7 +92,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
             .withClusteringMaxBytesInGroup(3000)
             .withClusteringTargetFileMaxBytes(1000)
             .withClusteringPlanSmallFileLimit(50)
-            .withEarlierInstantsFirst(true)
+            .withFileSlicesSortBy("INSTANT_TIME,SIZE")
             .build())
         .build();
 
@@ -127,7 +127,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
   }
 
   @Test
-  public void testEarlierInstantsFirstDisabled() {
+  public void testSortBySizeOnly() {
     HoodieWriteConfig config = HoodieWriteConfig.newBuilder()
         .withPath("")
         .withClusteringConfig(HoodieClusteringConfig.newBuilder()
@@ -135,7 +135,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
             .withClusteringMaxBytesInGroup(2000)
             .withClusteringTargetFileMaxBytes(1000)
             .withClusteringPlanSmallFileLimit(500)
-            .withEarlierInstantsFirst(false)
+            .withFileSlicesSortBy("SIZE")
             .build())
         .build();
 
@@ -166,7 +166,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
             .withClusteringMaxBytesInGroup(300)
             .withClusteringTargetFileMaxBytes(1000)
             .withClusteringPlanSmallFileLimit(1000)
-            .withEarlierInstantsFirst(true)
+            .withFileSlicesSortBy("INSTANT_TIME,SIZE")
             .build())
         .build();
 
@@ -187,7 +187,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
   }
 
   @Test
-  public void testSortingBehaviorComparisonWithAndWithoutEarlierInstantsFirst() {
+  public void testSortingBehaviorComparisonInstantTimeVsSizeOnly() {
     HoodieWriteConfig configEnabled = HoodieWriteConfig.newBuilder()
         .withPath("")
         .withClusteringConfig(HoodieClusteringConfig.newBuilder()
@@ -195,7 +195,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
             .withClusteringMaxBytesInGroup(200)
             .withClusteringTargetFileMaxBytes(1000)
             .withClusteringPlanSmallFileLimit(1000)
-            .withEarlierInstantsFirst(true)
+            .withFileSlicesSortBy("INSTANT_TIME,SIZE")
             .build())
         .build();
 
@@ -206,7 +206,7 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
             .withClusteringMaxBytesInGroup(200)
             .withClusteringTargetFileMaxBytes(1000)
             .withClusteringPlanSmallFileLimit(1000)
-            .withEarlierInstantsFirst(false)
+            .withFileSlicesSortBy("SIZE")
             .build())
         .build();
 

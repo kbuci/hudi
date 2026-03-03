@@ -2016,8 +2016,8 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getLong(HoodieClusteringConfig.PLAN_STRATEGY_TARGET_FILE_MAX_BYTES);
   }
 
-  public boolean isEarlierInstantsFirst() {
-    return getBoolean(HoodieClusteringConfig.EARLIER_INSTANTS_FIRST);
+  public String getFileSlicesSortBy() {
+    return getString(HoodieClusteringConfig.PLAN_STRATEGY_FILE_SLICES_SORT_BY);
   }
 
   public int getTargetPartitionsForClustering() {
