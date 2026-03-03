@@ -2732,14 +2732,8 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getStringOrDefault(APPLICATION_ID);
   }
 
-  /**
-   * Returns a new {@link HoodieWriteConfig} with the given application id set.
-   */
-  public HoodieWriteConfig withApplicationId(String appId) {
-    Properties props = new Properties();
-    props.putAll(getProps());
-    props.setProperty(APPLICATION_ID.key(), appId);
-    return new HoodieWriteConfig(this.engineType, props);
+  public void setApplicationId(String appId) {
+    setValue(APPLICATION_ID, appId);
   }
 
   public ConflictResolutionStrategy getWriteConflictResolutionStrategy() {

@@ -111,6 +111,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
     this.context = context;
     this.basePath = clientConfig.getBasePath();
     this.config = clientConfig;
+    this.config.setApplicationId(context.getApplicationId());
     this.timelineServer = timelineServer;
     shouldStopTimelineServer = !timelineServer.isPresent();
     this.heartbeatClient = new HoodieHeartbeatClient(storage, this.basePath,
