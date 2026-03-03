@@ -347,17 +347,15 @@ public class HoodieClusteringConfig extends HoodieConfig {
           + "Please exercise caution while setting this config, especially when clustering is done very frequently. This could lead to race condition in "
           + "rare scenarios, for example, when the clustering completes after instants are fetched but before rollback completed.");
 
-  public static final ConfigProperty<Boolean> PLAN_PARTITION_PARALLEL = ConfigProperty
-      .key("hoodie.clustering.plan.partition.parallel")
-      .defaultValue(true)
+  public static final ConfigProperty<Boolean> PLAN_GENERATION_USE_LOCAL_ENGINE_CONTEXT = ConfigProperty
+      .key("hoodie.clustering.plan.generation.use.local.engine.context")
+      .defaultValue(false)
       .sinceVersion("1.2.0")
-      .withDocumentation("Compute clustering groups for each partition in parallel using engine context when generating "
-          + "the clustering plan. For example, with Spark engine setting this to true would lead to a separate spark task (computing all clustering "
-          + "groups per dataset partition), whereas setting this to false would lead to all clustering groups for all partitions being locally "
-          + "computed in parallel on the driver. By default this should be enabled, but can be disabled for cases where there are guaranteed to only be "
-          + "a few partitions with many files in clustering plan. And (when using Spark) it would be more resource-efficient to just use local "
-          + "engine context which will allow the spark driver (which has extra memory) to compute it all locally, rather than allocate more memory per executor "
-          + "(which won't anyway be needed later in the spark job).");
+      .withDocumentation("When enabled, uses a local engine context (e.g., driver-side in Spark) instead of the distributed engine context "
+          + "to compute clustering groups for each partition during clustering plan generation. By default this is disabled, meaning the distributed "
+          + "engine context is used (e.g., with Spark, each partition's clustering groups are computed in a separate Spark task). "
+          + "Enable this for cases where there are guaranteed to only be a few partitions with many files in the clustering plan, "
+          + "and it would be more resource-efficient to compute locally on the driver rather than allocate executor resources.");
 
   public static final ConfigProperty<Boolean> FILE_STITCHING_BINARY_COPY_SCHEMA_EVOLUTION_ENABLE = ConfigProperty
       .key(CLUSTERING_STRATEGY_PARAM_PREFIX + "binary.copy.schema.evolution.enable")
@@ -642,8 +640,8 @@ public class HoodieClusteringConfig extends HoodieConfig {
       return this;
     }
 
-    public Builder planPartitionParallel(Boolean isParallel) {
-      clusteringConfig.setValue(PLAN_PARTITION_PARALLEL, String.valueOf(isParallel));
+    public Builder useLocalEngineContextForPlanGeneration(Boolean useLocal) {
+      clusteringConfig.setValue(PLAN_GENERATION_USE_LOCAL_ENGINE_CONTEXT, String.valueOf(useLocal));
       return this;
     }
 

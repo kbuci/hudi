@@ -120,6 +120,19 @@ public abstract class PartitionAwareClusteringPlanStrategy<T,I,K,O> extends Clus
   }
 
   /**
+   * Resolves the engine context to use for clustering plan generation.
+   * When {@code hoodie.clustering.plan.generation.use.local.engine.context} is enabled,
+   * returns a new {@link HoodieLocalEngineContext} to compute on the driver;
+   * otherwise returns the distributed engine context.
+   */
+  protected HoodieEngineContext resolveEngineContextForPlanGeneration() {
+    if (getWriteConfig().isClusteringPlanGenerationUseLocalEngineContext()) {
+      return new HoodieLocalEngineContext(getEngineContext().getStorageConf());
+    }
+    return getEngineContext();
+  }
+
+  /**
    * Return list of partition paths to be considered for clustering.
    */
   public Pair<List<String>, List<String>> filterPartitionPaths(HoodieWriteConfig writeConfig, List<String> partitions) {
@@ -165,12 +178,7 @@ public abstract class PartitionAwareClusteringPlanStrategy<T,I,K,O> extends Clus
       return Option.empty();
     }
 
-    final HoodieEngineContext engineContext;
-    if (getWriteConfig().isClusteringPlanPartitionParallel()) {
-      engineContext = getEngineContext();
-    } else {
-      engineContext = new HoodieLocalEngineContext(getEngineContext().getStorageConf());
-    }
+    final HoodieEngineContext engineContext = resolveEngineContextForPlanGeneration();
 
     List<Pair<List<HoodieClusteringGroup>, String>> res = engineContext.map(partitionPaths, partitionPath -> {
       List<FileSlice> fileSlicesEligible = getFileSlicesEligibleForClustering(partitionPath).collect(Collectors.toList());
