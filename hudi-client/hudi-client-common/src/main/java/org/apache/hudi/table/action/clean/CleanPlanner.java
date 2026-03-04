@@ -250,11 +250,6 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
             // For COW only check partitions where the write updated a file slice (leaving behind an older version of the file slice to clean)
             // Since some partitions may have only had new file slices created (not leaving behind anything to clean yet)
             return commitMetadata.getWritePartitionPathsWithUpdatedFileGroups().stream();
-          } else if (HoodieTimeline.DELTA_COMMIT_ACTION.equals(instant.getAction()) && hoodieTable.getMetaClient().getTableType().equals(
-              HoodieTableType.MERGE_ON_READ)) {
-            // For MOR delta commits, there are no old base files to clean (only log files are added)
-            // Partitions with files to clean will be found via compaction commits in the incremental window
-            return Stream.empty();
           }
         }
         // For other cases like MOR compaction, fall back to checking all partitions affected
