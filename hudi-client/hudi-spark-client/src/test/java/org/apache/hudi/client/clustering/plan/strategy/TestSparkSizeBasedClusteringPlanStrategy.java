@@ -24,6 +24,7 @@ import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieBaseFile;
+import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.table.HoodieSparkCopyOnWriteTable;
@@ -89,9 +90,10 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
         .withPath("")
         .withClusteringConfig(HoodieClusteringConfig.newBuilder()
             .withClusteringPlanStrategyClass(SparkSizeBasedClusteringPlanStrategy.class.getName())
-            .withClusteringMaxBytesInGroup(3000)
+            .withClusteringMaxBytesInGroup(750)
             .withClusteringTargetFileMaxBytes(1000)
             .withClusteringPlanSmallFileLimit(50)
+            .withClusteringMaxNumGroups(1)
             .withFileSlicesSortBy("INSTANT_TIME,SIZE")
             .build())
         .build();
@@ -105,25 +107,21 @@ public class TestSparkSizeBasedClusteringPlanStrategy {
     fileSlices.add(createFileSliceWithCommitTime(100, "002"));
     fileSlices.add(createFileSliceWithCommitTime(300, "002"));
 
-    Stream<HoodieClusteringGroup> clusteringGroupStream =
-        (Stream<HoodieClusteringGroup>) planStrategy.buildClusteringGroupsForPartition("p0", fileSlices).getLeft();
-    List<HoodieClusteringGroup> clusteringGroups = clusteringGroupStream.collect(Collectors.toList());
+    Pair<Stream<HoodieClusteringGroup>, Boolean> result =
+        planStrategy.buildClusteringGroupsForPartition("p0", fileSlices);
+    List<HoodieClusteringGroup> clusteringGroups =
+        ((Stream<HoodieClusteringGroup>) result.getLeft()).collect(Collectors.toList());
 
-    Assertions.assertTrue(clusteringGroups.size() > 0);
+    Assertions.assertEquals(1, clusteringGroups.size());
 
-    List<HoodieSliceInfo> allSlices = new ArrayList<>();
-    for (HoodieClusteringGroup group : clusteringGroups) {
-      allSlices.addAll(group.getSlices());
+    List<HoodieSliceInfo> slicesInPlan = clusteringGroups.get(0).getSlices();
+    Assertions.assertEquals(2, slicesInPlan.size());
+    for (HoodieSliceInfo slice : slicesInPlan) {
+      Assertions.assertTrue(slice.getDataFilePath().contains("001"),
+          "Expected only slices from earliest commit '001', but found: " + slice.getDataFilePath());
     }
 
-    Assertions.assertEquals(5, allSlices.size());
-
-    List<String> actualOrder = new ArrayList<>();
-    for (HoodieSliceInfo slice : allSlices) {
-      actualOrder.add(slice.getFileId());
-    }
-
-    Assertions.assertEquals(5, actualOrder.size());
+    Assertions.assertTrue(result.getRight(), "Should indicate partial scheduling since not all slices were processed");
   }
 
   @Test
