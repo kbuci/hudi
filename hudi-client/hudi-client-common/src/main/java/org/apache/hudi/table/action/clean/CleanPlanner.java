@@ -68,7 +68,7 @@ import java.util.stream.Stream;
 
 import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN;
 import static org.apache.hudi.common.table.timeline.InstantComparison.GREATER_THAN_OR_EQUALS;
-import static org.apache.hudi.common.table.timeline.InstantComparison.LESSER_THAN_OR_EQUALS;
+import static org.apache.hudi.common.table.timeline.InstantComparison.LESSER_THAN;
 import static org.apache.hudi.common.table.timeline.InstantComparison.compareTimestamps;
 
 /**
@@ -208,13 +208,10 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
           cleanMetadata.getEarliestCommitToRetain(),
           newInstantToRetain);
 
-      // Include newInstantToRetain in the window (LESSER_THAN_OR_EQUALS) to ensure partitions modified
-      // at the new retention boundary are scanned. This prevents cleaning from "lagging" when the
-      // window between cleans contains only commits that don't contribute partitions (e.g., MOR delta commits).
       return hoodieTable.getCompletedCommitsTimeline().getInstantsAsStream()
           .filter(instant -> compareTimestamps(instant.requestedTime(), GREATER_THAN_OR_EQUALS,
               cleanMetadata.getEarliestCommitToRetain()) && compareTimestamps(instant.requestedTime(),
-              LESSER_THAN_OR_EQUALS, newInstantToRetain.get().requestedTime()))
+              LESSER_THAN, newInstantToRetain.get().requestedTime()))
           .flatMap(this::getPartitionsForInstants).distinct().collect(Collectors.toList());
     }
   }
