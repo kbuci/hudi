@@ -679,7 +679,7 @@ public class HoodieWriteConfig extends HoodieConfig {
       .key("hoodie.clustering.block_for_pending_ingestion")
       .defaultValue(false)
       .markAdvanced()
-      .withDocumentation("(Only applicable to PreferWriterConflictResolutionStrategy) When enabled, proactively prevents clusteringfrom committing if there are any ongoing ingestion "
+      .withDocumentation("(Only applicable to PreferWriterConflictResolutionStrategy) When enabled, proactively prevents clustering from committing if there are any ongoing ingestion "
           + "writes that have not transitioned from requested to inflight yet and have an active heartbeat, "
           + "since ingestion may be targeting the same files and should have precedence (for that conflict resolution strategy).");
 
