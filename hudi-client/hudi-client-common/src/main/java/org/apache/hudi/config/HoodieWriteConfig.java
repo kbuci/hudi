@@ -2732,10 +2732,6 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getStringOrDefault(APPLICATION_ID);
   }
 
-  public void setApplicationId(String appId) {
-    setValue(APPLICATION_ID, appId);
-  }
-
   public ConflictResolutionStrategy getWriteConflictResolutionStrategy() {
     return ReflectionUtils.loadClass(getString(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME));
   }
