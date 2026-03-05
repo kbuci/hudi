@@ -116,6 +116,7 @@ public class HoodieMetrics {
   private String conflictResolutionTimerName = null;
   private String conflictResolutionSuccessCounterName = null;
   private String conflictResolutionFailureCounterName = null;
+  private String conflictResolutionAwaitingIngestionInflightCounterName = null;
   private String compactionRequestedCounterName = null;
   private String compactionCompletedCounterName = null;
   private String rollbackFailureCounterName = null;
@@ -135,6 +136,7 @@ public class HoodieMetrics {
   private Timer conflictResolutionTimer = null;
   private Counter conflictResolutionSuccessCounter = null;
   private Counter conflictResolutionFailureCounter = null;
+  private Counter conflictResolutionAwaitingIngestionInflightCounter = null;
   private Counter compactionRequestedCounter = null;
   private Counter compactionCompletedCounter = null;
   private Counter rollbackFailureCounter = null;
@@ -158,6 +160,7 @@ public class HoodieMetrics {
       this.conflictResolutionTimerName = getMetricsName(CONFLICT_RESOLUTION_STR, TIMER_METRIC);
       this.conflictResolutionSuccessCounterName = getMetricsName(CONFLICT_RESOLUTION_STR, SUCCESS_COUNTER);
       this.conflictResolutionFailureCounterName = getMetricsName(CONFLICT_RESOLUTION_STR, FAILURE_COUNTER);
+      this.conflictResolutionAwaitingIngestionInflightCounterName = getMetricsName(CONFLICT_RESOLUTION_STR, "awaiting_ingestion_inflight" + COUNTER_METRIC_EXTENSION);
       this.compactionRequestedCounterName = getMetricsName(HoodieTimeline.COMPACTION_ACTION, HoodieTimeline.REQUESTED_COMPACTION_SUFFIX + COUNTER_METRIC_EXTENSION);
       this.compactionCompletedCounterName = getMetricsName(HoodieTimeline.COMPACTION_ACTION, HoodieTimeline.COMPLETED_COMPACTION_SUFFIX + COUNTER_METRIC_EXTENSION);
       this.rollbackFailureCounterName = getMetricsName("rollback", FAILURE_COUNTER);
@@ -545,6 +548,15 @@ public class HoodieMetrics {
       log.info("Sending conflict resolution failure metric");
       conflictResolutionFailureCounter = getCounter(conflictResolutionFailureCounter, conflictResolutionFailureCounterName);
       conflictResolutionFailureCounter.inc();
+    }
+  }
+
+  public void emitConflictResolutionAwaitingIngestionInflight() {
+    if (config.isLockingMetricsEnabled()) {
+      log.info("Sending conflict resolution awaiting ingestion inflight metric");
+      conflictResolutionAwaitingIngestionInflightCounter = getCounter(
+          conflictResolutionAwaitingIngestionInflightCounter, conflictResolutionAwaitingIngestionInflightCounterName);
+      conflictResolutionAwaitingIngestionInflightCounter.inc();
     }
   }
 

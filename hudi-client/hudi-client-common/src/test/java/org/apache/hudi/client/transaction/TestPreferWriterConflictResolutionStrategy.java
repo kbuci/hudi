@@ -19,13 +19,17 @@
 package org.apache.hudi.client.transaction;
 
 import org.apache.hudi.client.WriteClientTestUtils;
+import org.apache.hudi.client.heartbeat.HoodieHeartbeatClient;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
+import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.config.HoodieWriteConfig;
+import org.apache.hudi.exception.HoodieWriteConflictAwaitingIngestionInflightException;
 import org.apache.hudi.exception.HoodieWriteConflictException;
 
 import org.junit.jupiter.api.Assertions;
@@ -250,5 +254,143 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     } catch (HoodieWriteConflictException e) {
       // expected
     }
+  }
+
+  /**
+   * Confirms that clustering will check for candidate ingestion .requested instants
+   * and will self-abort if they may potentially conflict with the ongoing clustering plan,
+   * when the ingestion .requested instant has an active heartbeat.
+   */
+  @Test
+  public void testClusterConflictingWithIngestionRequestedInstantWithActiveHeartbeat() throws Exception {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withClusteringBlockForPendingIngestion(true)
+        .withHeartbeatIntervalInMs(60 * 1000)
+        .withHeartbeatTolerableMisses(2)
+        .build();
+
+    createCommit(WriteClientTestUtils.createNewInstantTime(), metaClient);
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    Option<HoodieInstant> lastSuccessfulInstant = timeline.getCommitsTimeline().filterCompletedInstants().lastInstant();
+
+    // clustering gets scheduled and goes inflight
+    String currentWriterInstant = WriteClientTestUtils.createNewInstantTime();
+    createClusterRequested(currentWriterInstant, metaClient);
+    createClusterInflight(currentWriterInstant, metaClient);
+
+    // ingestion writer creates a .requested instant (not yet inflight)
+    String ingestionInstantTime = WriteClientTestUtils.createNewInstantTime();
+    HoodieTestTable.of(metaClient).addRequestedCommit(ingestionInstantTime);
+
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
+    // Without heartbeat, the .requested instant should be ignored (expired heartbeat)
+    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
+        metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
+        .collect(Collectors.toList());
+    Assertions.assertEquals(0, candidateInstants.size());
+
+    // Now start a heartbeat for a new ingestion writer
+    String activeIngestionInstantTime = WriteClientTestUtils.createNewInstantTime();
+    HoodieTestTable.of(metaClient).addRequestedCommit(activeIngestionInstantTime);
+    HoodieHeartbeatClient heartbeatClient = new HoodieHeartbeatClient(
+        metaClient.getStorage(), metaClient.getBasePath().toString(),
+        (long) (1000 * 60), 5);
+    heartbeatClient.start(activeIngestionInstantTime);
+
+    try {
+      strategy.getCandidateInstants(
+          metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
+          .collect(Collectors.toList());
+      Assertions.fail("Cannot reach here, exception should be thrown"
+          + " due to ongoing clustering finding an ingestion .requested with active heartbeat");
+    } catch (HoodieWriteConflictAwaitingIngestionInflightException e) {
+      // expected
+    } finally {
+      heartbeatClient.stop(activeIngestionInstantTime);
+      heartbeatClient.close();
+    }
+  }
+
+  /**
+   * Confirms that clustering does NOT block for pending ingestion .requested instants
+   * when the blocking config is disabled (default behavior).
+   */
+  @Test
+  public void testClusterDoesNotBlockWithoutConfigEnabled() throws Exception {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withClusteringBlockForPendingIngestion(false)
+        .build();
+
+    createCommit(WriteClientTestUtils.createNewInstantTime(), metaClient);
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    Option<HoodieInstant> lastSuccessfulInstant = timeline.getCommitsTimeline().filterCompletedInstants().lastInstant();
+
+    // clustering gets scheduled and goes inflight
+    String currentWriterInstant = WriteClientTestUtils.createNewInstantTime();
+    createClusterRequested(currentWriterInstant, metaClient);
+    createClusterInflight(currentWriterInstant, metaClient);
+
+    // ingestion writer creates a .requested instant with active heartbeat
+    String ingestionInstantTime = WriteClientTestUtils.createNewInstantTime();
+    HoodieTestTable.of(metaClient).addRequestedCommit(ingestionInstantTime);
+    HoodieHeartbeatClient heartbeatClient = new HoodieHeartbeatClient(
+        metaClient.getStorage(), metaClient.getBasePath().toString(),
+        (long) (1000 * 60), 5);
+    heartbeatClient.start(ingestionInstantTime);
+
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
+    // With config disabled, clustering should NOT block even though there's an active heartbeat
+    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
+        metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
+        .collect(Collectors.toList());
+    Assertions.assertEquals(0, candidateInstants.size());
+
+    heartbeatClient.stop(ingestionInstantTime);
+    heartbeatClient.close();
+  }
+
+  /**
+   * Confirms that when the old getCandidateInstants (without write config) is called,
+   * it delegates properly and uses defaults (blocking disabled by default).
+   */
+  @Test
+  public void testClusterOldMethodDoesNotBlockByDefault() throws Exception {
+    createCommit(WriteClientTestUtils.createNewInstantTime(), metaClient);
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    Option<HoodieInstant> lastSuccessfulInstant = timeline.getCommitsTimeline().filterCompletedInstants().lastInstant();
+
+    // clustering gets scheduled and goes inflight
+    String currentWriterInstant = WriteClientTestUtils.createNewInstantTime();
+    createClusterRequested(currentWriterInstant, metaClient);
+    createClusterInflight(currentWriterInstant, metaClient);
+
+    // ingestion writer creates a .requested instant with active heartbeat
+    String ingestionInstantTime = WriteClientTestUtils.createNewInstantTime();
+    HoodieTestTable.of(metaClient).addRequestedCommit(ingestionInstantTime);
+    HoodieHeartbeatClient heartbeatClient = new HoodieHeartbeatClient(
+        metaClient.getStorage(), metaClient.getBasePath().toString(),
+        (long) (1000 * 60), 5);
+    heartbeatClient.start(ingestionInstantTime);
+
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
+    // Using old method (no write config), should NOT throw since default is blocking disabled
+    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
+        metaClient, currentInstant.get(), lastSuccessfulInstant)
+        .collect(Collectors.toList());
+    Assertions.assertEquals(0, candidateInstants.size());
+
+    heartbeatClient.stop(ingestionInstantTime);
+    heartbeatClient.close();
   }
 }
