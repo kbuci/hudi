@@ -155,7 +155,7 @@ public class PreferWriterConflictResolutionStrategy
           });
     } else {
       inflightIngestionCommitsStream = activeTimeline
-          .getTimelineOfActions(CollectionUtils.createSet(COMMIT_ACTION, DELTA_COMMIT_ACTION))
+          .getTimelineOfActions(CollectionUtils.createSet(COMMIT_ACTION, DELTA_COMMIT_ACTION, REPLACE_COMMIT_ACTION))
           .filterInflights()
           .getInstantsAsStream();
     }
