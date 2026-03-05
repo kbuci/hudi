@@ -253,10 +253,10 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
             // Since some partitions may have only had new file slices created (not leaving behind anything to clean yet)
             return commitMetadata.getWritePartitionPathsWithUpdatedFileGroups().stream();
           }
-            // For MOR, small file handling during inserts can cause deltacommits to create new base files (file slices) in existing file groups,
-            // so their partitions must still be returned.
-            // TODO: See if we can filter for MOR deltacommit operation types that are guaranteed to not create new file slices
-            // for existing file groups
+          // For MOR, small file handling during inserts can cause deltacommits to create new base files (file slices) in existing file groups,
+          // so their partitions must still be returned.
+          // TODO: See if we can filter for MOR deltacommit operation types that are guaranteed to not create new file slices
+          // for existing file groups
         }
         return commitMetadata.getPartitionToWriteStats().keySet().stream();
       }
