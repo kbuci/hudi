@@ -393,4 +393,138 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     heartbeatClient.stop(ingestionInstantTime);
     heartbeatClient.close();
   }
+
+  /**
+   * Confirms that when clustering has blocking enabled and there is an inflight ingestion instant,
+   * it is returned as a candidate (exercises the i.isInflight() return path in the blocking filter).
+   */
+  @Test
+  public void testClusterWithBlockingEnabledAndInflightIngestion() throws Exception {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withClusteringBlockForPendingIngestion(true)
+        .withHeartbeatIntervalInMs(60 * 1000)
+        .withHeartbeatTolerableMisses(2)
+        .build();
+
+    createCommit(WriteClientTestUtils.createNewInstantTime(), metaClient);
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    Option<HoodieInstant> lastSuccessfulInstant = timeline.getCommitsTimeline().filterCompletedInstants().lastInstant();
+
+    // clustering gets scheduled and goes inflight
+    String currentWriterInstant = WriteClientTestUtils.createNewInstantTime();
+    createClusterRequested(currentWriterInstant, metaClient);
+    createClusterInflight(currentWriterInstant, metaClient);
+
+    // ingestion writer creates an inflight commit
+    String ingestionInstantTime = WriteClientTestUtils.createNewInstantTime();
+    createInflightCommit(ingestionInstantTime, metaClient);
+
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
+    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
+        metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
+        .collect(Collectors.toList());
+    // The inflight ingestion instant should be returned as a candidate
+    Assertions.assertEquals(1, candidateInstants.size());
+    Assertions.assertEquals(ingestionInstantTime, candidateInstants.get(0).requestedTime());
+  }
+
+  /**
+   * Confirms that when clustering has blocking enabled and there is both an inflight and an
+   * expired-heartbeat requested ingestion instant, only the inflight is returned as a candidate.
+   */
+  @Test
+  public void testClusterWithBlockingEnabledInflightAndExpiredRequested() throws Exception {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withClusteringBlockForPendingIngestion(true)
+        .withHeartbeatIntervalInMs(60 * 1000)
+        .withHeartbeatTolerableMisses(2)
+        .build();
+
+    createCommit(WriteClientTestUtils.createNewInstantTime(), metaClient);
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    Option<HoodieInstant> lastSuccessfulInstant = timeline.getCommitsTimeline().filterCompletedInstants().lastInstant();
+
+    // clustering gets scheduled and goes inflight
+    String currentWriterInstant = WriteClientTestUtils.createNewInstantTime();
+    createClusterRequested(currentWriterInstant, metaClient);
+    createClusterInflight(currentWriterInstant, metaClient);
+
+    // expired requested ingestion instant (no heartbeat)
+    String expiredInstantTime = WriteClientTestUtils.createNewInstantTime();
+    HoodieTestTable.of(metaClient).addRequestedCommit(expiredInstantTime);
+
+    // active inflight ingestion instant
+    String inflightInstantTime = WriteClientTestUtils.createNewInstantTime();
+    createInflightCommit(inflightInstantTime, metaClient);
+
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
+    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
+        metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
+        .collect(Collectors.toList());
+    // Only the inflight should be returned; expired requested should be filtered out
+    Assertions.assertEquals(1, candidateInstants.size());
+    Assertions.assertEquals(inflightInstantTime, candidateInstants.get(0).requestedTime());
+  }
+
+  /**
+   * Confirms that compaction (non-clustering table service) going through the new overload
+   * with write config still picks up inflight ingestion instants as candidates.
+   */
+  @Test
+  public void testCompactionWithInflightIngestionViaNewOverload() throws Exception {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withClusteringBlockForPendingIngestion(true)
+        .build();
+
+    createCommit(WriteClientTestUtils.createNewInstantTime(), metaClient);
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    Option<HoodieInstant> lastSuccessfulInstant = timeline.getCommitsTimeline().filterCompletedInstants().lastInstant();
+
+    // writer 1 starts (inflight ingestion)
+    String currentWriterInstant = WriteClientTestUtils.createNewInstantTime();
+    createInflightCommit(currentWriterInstant, metaClient);
+
+    // compaction gets scheduled
+    String compactionInstantTime = WriteClientTestUtils.createNewInstantTime();
+    createCompactionRequested(compactionInstantTime, metaClient);
+
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
+    // Compaction is not clustering, so it should use the non-blocking path even though config is enabled
+    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
+        metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
+        .collect(Collectors.toList());
+    Assertions.assertEquals(1, candidateInstants.size());
+    Assertions.assertEquals(currentWriterInstant, candidateInstants.get(0).requestedTime());
+  }
+
+  @Test
+  public void testHoodieWriteConflictAwaitingIngestionInflightExceptionConstructors() {
+    String msg = "test message";
+    Exception cause = new RuntimeException("cause");
+
+    HoodieWriteConflictAwaitingIngestionInflightException e1 =
+        new HoodieWriteConflictAwaitingIngestionInflightException(msg);
+    Assertions.assertEquals(msg, e1.getMessage());
+
+    HoodieWriteConflictAwaitingIngestionInflightException e2 =
+        new HoodieWriteConflictAwaitingIngestionInflightException(cause);
+    Assertions.assertEquals(cause, e2.getCause());
+
+    HoodieWriteConflictAwaitingIngestionInflightException e3 =
+        new HoodieWriteConflictAwaitingIngestionInflightException(msg, cause);
+    Assertions.assertEquals(msg, e3.getMessage());
+    Assertions.assertEquals(cause, e3.getCause());
+  }
 }

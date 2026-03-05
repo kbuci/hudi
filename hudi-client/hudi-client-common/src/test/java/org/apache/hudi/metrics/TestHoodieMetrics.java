@@ -322,6 +322,19 @@ public class TestHoodieMetrics {
   }
 
   @Test
+  public void testConflictResolutionAwaitingIngestionInflightMetric() {
+    when(writeConfig.isLockingMetricsEnabled()).thenReturn(true);
+    HoodieMetrics lockingMetrics = new HoodieMetrics(writeConfig, HoodieTestUtils.getDefaultStorage());
+
+    lockingMetrics.emitConflictResolutionAwaitingIngestionInflight();
+    String metricName = lockingMetrics.getMetricsName("conflict_resolution", "awaiting_ingestion_inflight.counter");
+    assertEquals(1, metrics.getRegistry().getCounters().get(metricName).getCount());
+
+    lockingMetrics.emitConflictResolutionAwaitingIngestionInflight();
+    assertEquals(2, metrics.getRegistry().getCounters().get(metricName).getCount());
+  }
+
+  @Test
   public void testRollbackFailureMetric() {
     // Test that rollback failure metric is emitted correctly
     String exceptionType = "FileNotFoundException";
