@@ -290,7 +290,7 @@ public class ClusteringUtils {
       if (metaClientOpt.isPresent() && !metaClientOpt.get().reloadActiveTimeline().containsInstant(pendingReplaceInstant)) {
         log.warn("Error reading requested replace metadata {} due to it no longer being in the timeline. "
             + "This could be due to the instant being rolled back by a concurrent writer",
-          pendingReplaceInstant, e);
+            pendingReplaceInstant, e);
         return Option.empty();
       }
       final IOException ioException;
