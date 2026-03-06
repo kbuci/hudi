@@ -319,11 +319,13 @@ public class TestClusteringUtils extends HoodieCommonTestHarness {
     HoodieInstant requestedInstant = createRequestedClusterInstant(partitionPath, clusterTime, fileIds);
     metaClient.reloadActiveTimeline();
 
-    // Corrupt the requested file by overwriting with invalid content
+    // Corrupt the requested file by overwriting with invalid (non-empty) content
     StoragePath instantFilePath = new StoragePath(
         metaClient.getTimelinePath(),
         INSTANT_FILE_NAME_GENERATOR.getFileName(requestedInstant));
-    metaClient.getStorage().create(instantFilePath, true).close();
+    java.io.OutputStream out = metaClient.getStorage().create(instantFilePath, true);
+    out.write(new byte[] {0, 1, 2, 3});
+    out.close();
 
     assertThrows(HoodieIOException.class,
         () -> ClusteringUtils.getClusteringPlan(metaClient, requestedInstant));
