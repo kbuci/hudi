@@ -289,7 +289,8 @@ public class ClusteringUtils {
     } catch (IOException | HoodieIOException e) {
       if (metaClientOpt.isPresent() && !metaClientOpt.get().reloadActiveTimeline().containsInstant(pendingReplaceInstant)) {
         log.warn("Error reading requested replace metadata {} due to it no longer being in the timeline. "
-            + "This could be due to the instant being rolled back by a concurrent writer, which can happen if the instant is a insert_overwrite replacecommit or a clustering instant with PreferWriterConflictResolutionStrategy", pendingReplaceInstant, e);
+            + "This could be due to the instant being rolled back by a concurrent writer",
+          pendingReplaceInstant, e);
         return Option.empty();
       }
       final IOException ioException;
