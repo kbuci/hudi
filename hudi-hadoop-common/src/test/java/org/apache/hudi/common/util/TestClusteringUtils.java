@@ -36,6 +36,7 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.versioning.clean.CleanPlanV2MigrationHandler;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.storage.StoragePath;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -55,6 +56,7 @@ import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_FILE_NAME
 import static org.apache.hudi.common.testutils.HoodieTestUtils.INSTANT_GENERATOR;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -302,6 +304,72 @@ public class TestClusteringUtils extends HoodieCommonTestHarness {
         ClusteringUtils.getAllPendingClusteringPlans(metaClient).collect(Collectors.toList());
     assertEquals(1, plans.size());
     assertEquals("1", plans.get(0).getLeft().requestedTime());
+  }
+
+  /**
+   * When the requested file is corrupted but the instant is still in the timeline,
+   * getClusteringPlan should rethrow the exception (genuine error, not a rollback).
+   */
+  @Test
+  public void testGetClusteringPlanRethrowsWhenInstantStillInTimeline() throws Exception {
+    String partitionPath = "partition1";
+    List<String> fileIds = new ArrayList<>();
+    fileIds.add(UUID.randomUUID().toString());
+    String clusterTime = "1";
+    HoodieInstant requestedInstant = createRequestedClusterInstant(partitionPath, clusterTime, fileIds);
+    metaClient.reloadActiveTimeline();
+
+    // Corrupt the requested file by overwriting with invalid content
+    StoragePath instantFilePath = new StoragePath(
+        metaClient.getTimelinePath(),
+        INSTANT_FILE_NAME_GENERATOR.getFileName(requestedInstant));
+    metaClient.getStorage().create(instantFilePath, true).close();
+
+    assertThrows(HoodieIOException.class,
+        () -> ClusteringUtils.getClusteringPlan(metaClient, requestedInstant));
+  }
+
+  /**
+   * The 3-arg overload (without metaClient) should throw on a missing instant since
+   * it has no metaClient to verify rollback.
+   */
+  @Test
+  public void testGetClusteringPlanWithoutMetaClientThrowsOnMissingInstant() throws Exception {
+    String partitionPath = "partition1";
+    List<String> fileIds = new ArrayList<>();
+    fileIds.add(UUID.randomUUID().toString());
+    String clusterTime = "1";
+    HoodieInstant requestedInstant = createRequestedClusterInstant(partitionPath, clusterTime, fileIds);
+    metaClient.reloadActiveTimeline();
+
+    // Delete the requested file
+    StoragePath instantFilePath = new StoragePath(
+        metaClient.getTimelinePath(),
+        INSTANT_FILE_NAME_GENERATOR.getFileName(requestedInstant));
+    assertTrue(metaClient.getStorage().deleteFile(instantFilePath));
+
+    // The 3-arg overload without metaClient should throw
+    assertThrows(HoodieIOException.class,
+        () -> ClusteringUtils.getClusteringPlan(
+            metaClient.getActiveTimeline(), requestedInstant, INSTANT_GENERATOR));
+  }
+
+  /**
+   * The 3-arg overload (without metaClient) should return the plan successfully on the happy path.
+   */
+  @Test
+  public void testGetClusteringPlanViaTimelineOverload() throws Exception {
+    String partitionPath = "partition1";
+    List<String> fileIds = new ArrayList<>();
+    fileIds.add(UUID.randomUUID().toString());
+    String clusterTime = "1";
+    HoodieInstant requestedInstant = createRequestedClusterInstant(partitionPath, clusterTime, fileIds);
+    metaClient.reloadActiveTimeline();
+
+    Option<Pair<HoodieInstant, HoodieClusteringPlan>> plan = ClusteringUtils.getClusteringPlan(
+        metaClient.getActiveTimeline(), requestedInstant, INSTANT_GENERATOR);
+    assertTrue(plan.isPresent());
+    assertEquals(clusterTime, plan.get().getLeft().requestedTime());
   }
 
   private void validateClusteringInstant(List<String> fileIds, String partitionPath,
