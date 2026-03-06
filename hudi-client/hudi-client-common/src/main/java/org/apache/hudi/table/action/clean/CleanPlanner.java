@@ -244,20 +244,16 @@ public class CleanPlanner<T, I, K, O> implements Serializable {
         HoodieCommitMetadata commitMetadata =
             hoodieTable.getActiveTimeline().readCommitMetadata(instant);
         WriteOperationType operationType = commitMetadata.getOperationType();
-        if (WriteOperationType.isUpsert(operationType) || WriteOperationType.isInsertWithoutReplace(operationType)) {
-          // Make sure we only filter for operatiions that can potentially create new file groups from new records
-          // This is a safeguard in case future types of operations (that aren't writes) use COMMIT_ACTION type
-          if (HoodieTimeline.COMMIT_ACTION.equals(instant.getAction()) && hoodieTable.getMetaClient().getTableType().equals(
-              HoodieTableType.COPY_ON_WRITE)) {
-            // For COW only check partitions where the write updated a file slice (leaving behind an older version of the file slice to clean)
-            // Since some partitions may have only had new file slices created (not leaving behind anything to clean yet)
-            return commitMetadata.getWritePartitionPathsWithUpdatedFileGroups().stream();
-          }
-          // For MOR, small file handling during inserts can cause deltacommits to create new base files (file slices) in existing file groups,
-          // so their partitions must still be returned.
-          // TODO: See if we can filter for MOR deltacommit operation types that are guaranteed to not create new file slices
-          // for existing file groups
+        if ((WriteOperationType.isUpsert(operationType) || WriteOperationType.isInsertWithoutReplace(operationType))
+            && HoodieTimeline.COMMIT_ACTION.equals(instant.getAction())
+            && hoodieTable.getMetaClient().getTableType().equals(HoodieTableType.COPY_ON_WRITE)) {
+          // For COW upsert/insert, only check partitions where the write updated an existing file slice
+          // (leaving behind an older version to clean). Partitions with only new file slices have nothing to clean yet.
+          return commitMetadata.getWritePartitionPathsWithUpdatedFileGroups().stream();
         }
+        // For MOR, small file handling during inserts can cause deltacommits to create new base files (file slices)
+        // in existing file groups, so their partitions must still be returned.
+        // TODO: filter MOR deltacommit operation types guaranteed to not create new file slices for existing file groups
         return commitMetadata.getPartitionToWriteStats().keySet().stream();
       }
     } catch (IOException e) {
