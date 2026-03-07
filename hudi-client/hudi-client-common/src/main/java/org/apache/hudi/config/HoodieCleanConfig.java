@@ -214,7 +214,7 @@ public class HoodieCleanConfig extends HoodieConfig {
           + "When enabled, both non-partitioned datasets and metadata tables use the driver for scheduling cleans.");
 
   public static final ConfigProperty<String> PREWRITE_CLEANER_POLICY = ConfigProperty
-      .key("hoodie.cleaner.prewrite.cleaner.policy")
+      .key("hoodie.prewrite.cleaner.policy")
       .defaultValue(HoodiePreWriteCleanerPolicy.NONE.name())
       .sinceVersion("1.2.0")
       .withDocumentation(HoodiePreWriteCleanerPolicy.class);
