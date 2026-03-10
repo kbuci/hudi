@@ -1170,13 +1170,9 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
     if (!expiredInstants.isEmpty()) {
       // Only return instants that haven't been completed by other writers
       metaClient.reloadActiveTimeline();
-      HoodieTimeline refreshedInflightTimeline = getInflightTimelineExcludeCompactionAndClustering(metaClient);
-      HoodieTimeline pendingClusteringTimeline = config.isRollbackFailedClustering()
-          ? metaClient.getActiveTimeline().filterPendingReplaceOrClusteringTimeline()
-          : null;
+      HoodieTimeline refreshedIncompleteTimeline = metaClient.getActiveTimeline().filterInflightsAndRequested();
       return expiredInstants.stream().filter(instantTime ->
-          refreshedInflightTimeline.containsInstant(instantTime)
-              || (pendingClusteringTimeline != null && pendingClusteringTimeline.containsInstant(instantTime))
+          refreshedIncompleteTimeline.containsInstant(instantTime)
       ).collect(Collectors.toList());
     } else {
       return Collections.emptyList();
