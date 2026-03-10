@@ -28,6 +28,7 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.table.timeline.versioning.v2.InstantComparatorV2;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.InProcessTimeGenerator;
@@ -48,13 +49,18 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorageConf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -241,6 +247,223 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     assertEquals(metadata, tableServiceClient.clean(Option.empty(), true));
     verify(mockMetaClient).reloadActiveTimeline();
   }
+
+  // --- Tests for clustering rollback logic ---
+
+  @Test
+  void isClusteringInstantEligibleForRollback_returnsFalseWhenConfigDisabled() throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .build();
+    assertFalse(writeConfig.isRollbackFailedClustering());
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+    HoodieInstant clusteringInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, createOldInstantTime());
+
+    assertFalse(client.isClusteringInstantEligibleForRollback(metaClient, clusteringInstant));
+  }
+
+  @Test
+  void isClusteringInstantEligibleForRollback_returnsFalseWhenInstantTooRecent() throws IOException {
+    initMetaClient();
+    Properties props = new Properties();
+    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(props)
+        .build();
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+
+    // Create a clustering instant with a recent timestamp
+    String recentTime = InProcessTimeGenerator.createNewInstantTime();
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, recentTime);
+    timeline.createNewInstant(requestedInstant);
+    HoodieInstant inflightInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, recentTime);
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
+
+    assertFalse(client.isClusteringInstantEligibleForRollback(metaClient, inflightInstant));
+  }
+
+  @Test
+  void isClusteringInstantEligibleForRollback_returnsTrueWhenEligible() throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollback(0L);
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+
+    String oldTime = createOldInstantTime();
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, oldTime);
+    timeline.createNewInstant(requestedInstant);
+    HoodieInstant inflightInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, oldTime);
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
+
+    assertTrue(client.isClusteringInstantEligibleForRollback(metaClient, inflightInstant));
+  }
+
+  @Test
+  void isClusteringInstantEligibleForRollback_returnsFalseForNonClusteringInstant() throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollback(0L);
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+
+    // A regular commit instant is not a clustering instant
+    HoodieInstant commitInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, createOldInstantTime());
+
+    assertFalse(client.isClusteringInstantEligibleForRollback(metaClient, commitInstant));
+  }
+
+  @Test
+  void getInstantsToRollback_includesEligibleClusteringInstantsWithExpiredHeartbeat() throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollbackAndLazy(0L);
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+
+    String oldClusteringTime = createOldInstantTime();
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, oldClusteringTime);
+    timeline.createNewInstant(requestedInstant);
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
+
+    // No heartbeat file → expired heartbeat → should be included in rollback
+    List<String> instants = client.getInstantsToRollback(
+        metaClient, HoodieFailedWritesCleaningPolicy.LAZY, Option.empty());
+
+    assertTrue(instants.contains(oldClusteringTime),
+        "Old clustering instant with expired heartbeat should be rolled back");
+  }
+
+  @Test
+  void getInstantsToRollback_skipsClusteringInstantsWithActiveHeartbeat() throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollbackAndLazy(0L);
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+
+    String oldClusteringTime = createOldInstantTime();
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, oldClusteringTime);
+    timeline.createNewInstant(requestedInstant);
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
+
+    // Start heartbeat so it is NOT expired
+    client.getHeartbeatClient().start(oldClusteringTime);
+
+    List<String> instants = client.getInstantsToRollback(
+        metaClient, HoodieFailedWritesCleaningPolicy.LAZY, Option.empty());
+
+    assertFalse(instants.contains(oldClusteringTime),
+        "Clustering instant with active heartbeat should NOT be rolled back");
+
+    client.getHeartbeatClient().stop(oldClusteringTime);
+  }
+
+  @Test
+  void getInstantsToRollback_skipsRecentClusteringInstants() throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollbackAndLazy(60L);
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+
+    // Create a clustering instant with a recent timestamp (not 60 minutes old)
+    String recentTime = InProcessTimeGenerator.createNewInstantTime();
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, recentTime);
+    timeline.createNewInstant(requestedInstant);
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
+
+    List<String> instants = client.getInstantsToRollback(
+        metaClient, HoodieFailedWritesCleaningPolicy.LAZY, Option.empty());
+
+    assertFalse(instants.contains(recentTime),
+        "Recent clustering instant should NOT be rolled back (wait minutes guardrail)");
+  }
+
+  @Test
+  void getInstantsToRollback_skipsClusteringInstantsWhenConfigDisabled() throws IOException {
+    initMetaClient();
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
+            .build())
+        .build();
+    assertFalse(writeConfig.isRollbackFailedClustering());
+
+    TestTableServiceClient client = createSimpleTestClient(writeConfig);
+
+    String oldClusteringTime = createOldInstantTime();
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, oldClusteringTime);
+    timeline.createNewInstant(requestedInstant);
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
+
+    List<String> instants = client.getInstantsToRollback(
+        metaClient, HoodieFailedWritesCleaningPolicy.LAZY, Option.empty());
+
+    assertFalse(instants.contains(oldClusteringTime),
+        "Clustering instants should NOT be rolled back when config is disabled");
+  }
+
+  private String createOldInstantTime() {
+    Date oldDate = new Date(System.currentTimeMillis() - 2 * 60 * 60 * 1000);
+    return TimelineUtils.formatDate(oldDate);
+  }
+
+  private HoodieWriteConfig buildConfigWithClusteringRollback(long waitMinutes) {
+    Properties props = new Properties();
+    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
+    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING_WAIT_MINUTES.key(), String.valueOf(waitMinutes));
+    return HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(props)
+        .build();
+  }
+
+  private HoodieWriteConfig buildConfigWithClusteringRollbackAndLazy(long waitMinutes) {
+    Properties props = new Properties();
+    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
+    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING_WAIT_MINUTES.key(), String.valueOf(waitMinutes));
+    return HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withProperties(props)
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
+            .build())
+        .build();
+  }
+
+  private TestTableServiceClient createSimpleTestClient(HoodieWriteConfig writeConfig) {
+    return new TestTableServiceClient(
+        writeConfig,
+        Collections.emptyIterator(),
+        Option.empty(),
+        Collections.emptyMap(),
+        Collections.emptyIterator());
+  }
+
+  // --- End clustering rollback tests ---
 
   private static class TestTableServiceClient extends BaseHoodieTableServiceClient<String, String, String> {
     private final Iterator<HoodieTable<String, String, String, String>> tables;

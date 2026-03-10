@@ -296,10 +296,32 @@ public class HoodieClusteringJob {
   }
 
   /**
-   * Rolls back all pending clustering instants that target any of the given partitions
+   * Returns the instant times of all pending clustering plans that target any of the given partitions.
+   *
+   * @param metaClient the table meta client
+   * @param partitions list of partition paths to check against pending clustering plans
+   * @return list of clustering instant times targeting the given partitions
+   */
+  public static List<String> getPendingClusteringInstantsForPartitions(
+      HoodieTableMetaClient metaClient,
+      List<String> partitions) {
+    Set<String> partitionSet = partitions.stream().collect(Collectors.toSet());
+    return ClusteringUtils.getAllPendingClusteringPlans(metaClient).stream()
+        .filter(planPair -> {
+          HoodieClusteringPlan plan = planPair.getRight();
+          return plan.getInputGroups().stream()
+              .flatMap(group -> group.getSlices().stream())
+              .map(slice -> slice.getPartitionPath())
+              .anyMatch(partitionSet::contains);
+        })
+        .map(planPair -> planPair.getLeft().requestedTime())
+        .collect(Collectors.toList());
+  }
+
+  /**
+   * Rolls back pending clustering instants that target any of the given partitions,
+   * are eligible for rollback (config enabled, old enough, and a clustering instant),
    * and whose heartbeat has expired (indicating the clustering job is no longer alive).
-   * Also respects {@link HoodieWriteConfig#ROLLBACK_FAILED_CLUSTERING_WAIT_MINUTES} as
-   * a guardrail to avoid rolling back recently created instants.
    *
    * @param client     the write client to use for rollback operations
    * @param metaClient the table meta client
@@ -311,38 +333,26 @@ public class HoodieClusteringJob {
       List<String> partitions) {
     long maxAllowableHeartbeatIntervalInMs = client.getConfig().getHoodieClientHeartbeatIntervalInMs()
         * client.getConfig().getHoodieClientHeartbeatTolerableMisses();
-    Set<String> partitionSet = partitions.stream().collect(Collectors.toSet());
     String basePath = metaClient.getBasePath().toString();
 
-    ClusteringUtils.getAllPendingClusteringPlans(metaClient)
-        .forEach(planPair -> {
-          HoodieInstant instant = planPair.getLeft();
-          HoodieClusteringPlan plan = planPair.getRight();
-
-          if (!client.getTableServiceClient().isClusteringInstantEligibleForRollback(metaClient, instant)) {
-            return;
-          }
-
-          Set<String> planPartitions = plan.getInputGroups().stream()
-              .flatMap(group -> group.getSlices().stream())
-              .map(slice -> slice.getPartitionPath())
-              .collect(Collectors.toSet());
-
-          boolean targetsRequestedPartitions = planPartitions.stream().anyMatch(partitionSet::contains);
-          if (!targetsRequestedPartitions) {
-            return;
-          }
-
+    getPendingClusteringInstantsForPartitions(metaClient, partitions).stream()
+        .filter(instantTime -> {
+          HoodieInstant instant = metaClient.getInstantGenerator()
+              .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, instantTime);
+          return client.getTableServiceClient().isClusteringInstantEligibleForRollback(metaClient, instant);
+        })
+        .filter(instantTime -> {
           try {
-            if (HoodieHeartbeatUtils.isHeartbeatExpired(instant.requestedTime(),
-                maxAllowableHeartbeatIntervalInMs, metaClient.getStorage(), basePath)) {
-              LOG.info("Rolling back failed clustering instant {} targeting partitions {}",
-                  instant.requestedTime(), planPartitions);
-              client.rollback(instant.requestedTime());
-            }
+            return HoodieHeartbeatUtils.isHeartbeatExpired(instantTime,
+                maxAllowableHeartbeatIntervalInMs, metaClient.getStorage(), basePath);
           } catch (IOException e) {
-            LOG.warn("Failed to check heartbeat / rollback clustering instant {}", instant.requestedTime(), e);
+            LOG.warn("Failed to check heartbeat for clustering instant {}", instantTime, e);
+            return false;
           }
+        })
+        .forEach(instantTime -> {
+          LOG.info("Rolling back failed clustering instant {}", instantTime);
+          client.rollback(instantTime);
         });
   }
 

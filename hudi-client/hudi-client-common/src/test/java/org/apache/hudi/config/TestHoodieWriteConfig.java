@@ -37,6 +37,7 @@ import org.apache.hudi.common.table.marker.MarkerType;
 import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.config.HoodieWriteConfig.Builder;
+import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 
@@ -824,5 +825,78 @@ public class TestHoodieWriteConfig {
     assertEquals(expectedConcurrencyMode, writeConfig.getWriteConcurrencyMode());
     assertEquals(expectedCleanPolicy, writeConfig.getFailedWritesCleanPolicy());
     assertEquals(expectedLockProviderName, writeConfig.getLockProviderClass());
+  }
+
+  @Test
+  public void testRollbackFailedClusteringDefaultsToFalse() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp")
+        .build();
+    assertFalse(writeConfig.isRollbackFailedClustering());
+    assertEquals(60L, writeConfig.getRollbackFailedClusteringWaitMinutes());
+  }
+
+  @Test
+  public void testRollbackFailedClusteringExplicitlyEnabled() {
+    Properties props = new Properties();
+    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
+    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING_WAIT_MINUTES.key(), "30");
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp")
+        .withProperties(props)
+        .build();
+    assertTrue(writeConfig.isRollbackFailedClustering());
+    assertEquals(30L, writeConfig.getRollbackFailedClusteringWaitMinutes());
+  }
+
+  @Test
+  public void testRollbackFailedClusteringInferredFromPreferWriterStrategy() {
+    Properties props = new Properties();
+    props.setProperty(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME.key(),
+        "org.apache.hudi.client.transaction.PreferWriterConflictResolutionStrategy");
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp")
+        .withProperties(props)
+        .build();
+    assertTrue(writeConfig.isRollbackFailedClustering());
+  }
+
+  @Test
+  public void testRollbackFailedClusteringNotInferredFromOtherStrategies() {
+    Properties props = new Properties();
+    props.setProperty(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME.key(),
+        "org.apache.hudi.client.transaction.SimpleConcurrentFileWritesConflictResolutionStrategy");
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp")
+        .withProperties(props)
+        .build();
+    assertFalse(writeConfig.isRollbackFailedClustering());
+  }
+
+  @Test
+  public void testAutoAdjustClusteringUpdateStrategyWithPreferWriterStrategy() {
+    Properties props = new Properties();
+    props.setProperty(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME.key(),
+        "org.apache.hudi.client.transaction.PreferWriterConflictResolutionStrategy");
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp")
+        .withProperties(props)
+        .build();
+    assertEquals(HoodieWriteConfig.SPARK_ALLOW_UPDATE_STRATEGY_CLASS_NAME,
+        writeConfig.getClusteringUpdatesStrategyClass());
+  }
+
+  @Test
+  public void testAutoAdjustClusteringUpdateStrategyNotOverriddenWhenExplicitlySet() {
+    Properties props = new Properties();
+    props.setProperty(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME.key(),
+        "org.apache.hudi.client.transaction.PreferWriterConflictResolutionStrategy");
+    String customStrategy = "org.apache.hudi.custom.MyCustomStrategy";
+    props.setProperty(HoodieClusteringConfig.UPDATES_STRATEGY.key(), customStrategy);
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp")
+        .withProperties(props)
+        .build();
+    assertEquals(customStrategy, writeConfig.getClusteringUpdatesStrategyClass());
   }
 }
