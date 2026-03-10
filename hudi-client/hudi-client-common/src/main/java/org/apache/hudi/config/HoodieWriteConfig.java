@@ -21,6 +21,7 @@ package org.apache.hudi.config;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.bootstrap.BootstrapMode;
 import org.apache.hudi.client.transaction.ConflictResolutionStrategy;
+import org.apache.hudi.client.transaction.PreferWriterConflictResolutionStrategy;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
 import org.apache.hudi.common.config.ConfigClassProperty;
 import org.apache.hudi.common.config.ConfigGroups;
@@ -2679,6 +2680,14 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBooleanOrDefault(CLUSTERING_BLOCK_FOR_PENDING_INGESTION);
   }
 
+  public boolean isExpirationOfClusteringEnabled() {
+    return getBooleanOrDefault(HoodieClusteringConfig.ENABLE_EXPIRATIONS);
+  }
+
+  public long getClusteringExpirationTimeMins() {
+    return getLong(HoodieClusteringConfig.EXPIRATION_TIME_MINS);
+  }
+
   /**
    * File listing metadata configs.
    */
@@ -3701,6 +3710,16 @@ public class HoodieWriteConfig extends HoodieConfig {
             HoodieCleanConfig.FAILED_WRITES_CLEANER_POLICY.key(),
             HoodieFailedWritesCleaningPolicy.LAZY.name(),
             writeConcurrencyMode.name());
+      }
+
+      String conflictStrategy = writeConfig.getStringOrDefault(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME, "");
+      if (PreferWriterConflictResolutionStrategy.class.getName().equals(conflictStrategy)
+          && !writeConfig.contains(HoodieClusteringConfig.UPDATES_STRATEGY)) {
+        writeConfig.setValue(HoodieClusteringConfig.UPDATES_STRATEGY.key(),
+            "org.apache.hudi.client.clustering.update.strategy.SparkAllowUpdateStrategy");
+        log.info("Automatically set {}={} since PreferWriterConflictResolutionStrategy is used",
+            HoodieClusteringConfig.UPDATES_STRATEGY.key(),
+            "org.apache.hudi.client.clustering.update.strategy.SparkAllowUpdateStrategy");
       }
     }
 

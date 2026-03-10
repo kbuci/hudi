@@ -81,12 +81,15 @@ import lombok.extern.slf4j.Slf4j;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
+import java.text.ParseException;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -726,6 +729,10 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
           Option<HoodieClusteringPlan> clusteringPlan = table
               .scheduleClustering(context, instantTime, extraMetadata);
           option = clusteringPlan.map(plan -> instantTime);
+          if (option.isPresent() && config.isRollbackFailedClustering()) {
+            heartbeatClient.start(instantTime);
+            log.info("Started heartbeat for clustering instant {}", instantTime);
+          }
           break;
         case COMPACT:
           log.info("Scheduling compaction at instant time: {} for table {}", instantTime, config.getBasePath());
@@ -1006,17 +1013,18 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
         String action = rollbackPlan.getInstantToRollback().getAction();
         String instantToRollback = rollbackPlan.getInstantToRollback().getCommitTime();
         if (ignoreCompactionAndClusteringInstants) {
-          if (!HoodieTimeline.COMPACTION_ACTION.equals(action)) {
-            InstantGenerator instantGenerator = metaClient.getInstantGenerator();
-            boolean isClustering = ClusteringUtils.isClusteringInstant(metaClient.getActiveTimeline(),
-                instantGenerator.createNewInstant(HoodieInstant.State.INFLIGHT, action, instantToRollback), instantGenerator);
-            if (!isClustering) {
-              infoMap.putIfAbsent(instantToRollback, Option.of(new HoodiePendingRollbackInfo(rollbackInstant, rollbackPlan)));
-            }
+          if (HoodieTimeline.COMPACTION_ACTION.equals(action)) {
+            continue;
           }
-        } else {
-          infoMap.putIfAbsent(instantToRollback, Option.of(new HoodiePendingRollbackInfo(rollbackInstant, rollbackPlan)));
+          HoodieInstant instant = metaClient.getInstantGenerator()
+              .createNewInstant(HoodieInstant.State.INFLIGHT, action, instantToRollback);
+          if (!isClusteringInstantEligibleForRollback(metaClient, instant)
+              && ClusteringUtils.isClusteringInstant(
+                  metaClient.getActiveTimeline(), instant, metaClient.getInstantGenerator())) {
+            continue;
+          }
         }
+        infoMap.putIfAbsent(instantToRollback, Option.of(new HoodiePendingRollbackInfo(rollbackInstant, rollbackPlan)));
       } catch (Exception e) {
         log.warn("Processing rollback plan failed for {}, skip the plan", rollbackInstant, e);
       }
@@ -1132,6 +1140,13 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
         }
       }).collect(Collectors.toList());
     } else if (cleaningPolicy.isLazy()) {
+      if (config.isRollbackFailedClustering()) {
+        Stream<HoodieInstant> eligibleClusteringInstants =
+            metaClient.getActiveTimeline().filterInflightsAndRequested()
+                .getInstantsAsStream()
+                .filter(instant -> isClusteringInstantEligibleForRollback(metaClient, instant));
+        inflightInstantsStream = Stream.concat(inflightInstantsStream, eligibleClusteringInstants);
+      }
       return getInstantsToRollbackForLazyCleanPolicy(metaClient, inflightInstantsStream);
     } else if (cleaningPolicy.isNever()) {
       return Collections.emptyList();
@@ -1156,9 +1171,33 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
       // Only return instants that haven't been completed by other writers
       metaClient.reloadActiveTimeline();
       HoodieTimeline refreshedInflightTimeline = getInflightTimelineExcludeCompactionAndClustering(metaClient);
-      return expiredInstants.stream().filter(refreshedInflightTimeline::containsInstant).collect(Collectors.toList());
+      HoodieTimeline pendingClusteringTimeline = config.isRollbackFailedClustering()
+          ? metaClient.getActiveTimeline().filterPendingReplaceOrClusteringTimeline()
+          : null;
+      return expiredInstants.stream().filter(instantTime ->
+          refreshedInflightTimeline.containsInstant(instantTime)
+              || (pendingClusteringTimeline != null && pendingClusteringTimeline.containsInstant(instantTime))
+      ).collect(Collectors.toList());
     } else {
       return Collections.emptyList();
+    }
+  }
+
+  public boolean isClusteringInstantEligibleForRollback(HoodieTableMetaClient metaClient, HoodieInstant instant) {
+    return config.isRollbackFailedClustering()
+        && isInstantOldEnough(instant.requestedTime(), config.getRollbackFailedClusteringWaitMinutes())
+        && ClusteringUtils.isClusteringInstant(
+            metaClient.getActiveTimeline(), instant, metaClient.getInstantGenerator());
+  }
+
+  private static boolean isInstantOldEnough(String instantTime, long waitMinutes) {
+    try {
+      Date instantDate = TimelineUtils.parseDateFromInstantTime(instantTime);
+      long ageMs = System.currentTimeMillis() - instantDate.getTime();
+      return ageMs >= TimeUnit.MINUTES.toMillis(waitMinutes);
+    } catch (ParseException e) {
+      log.warn("Could not parse instant time {}, assuming it is old enough for rollback", instantTime, e);
+      return true;
     }
   }
 
