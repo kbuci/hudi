@@ -44,7 +44,6 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.config.HoodieLockConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.exception.HoodieWriteConflictAwaitingIngestionInflightException;
 import org.apache.hudi.exception.HoodieWriteConflictException;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.index.simple.HoodieSimpleIndex;
@@ -304,31 +303,6 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     inOrder.verify(transactionManager).beginStateChange(Option.empty(), Option.empty());
     inOrder.verify(timeGenerator).generateTime(true);
     inOrder.verify(transactionManager).endStateChange(Option.of(expectedInstant));
-  }
-
-  @Test
-  void resolveWriteConflictRethrowsAwaitingIngestionInflightExceptionWithMetrics() throws IOException {
-    initMetaClient();
-    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
-        .withPath(basePath)
-        .withMetricsConfig(org.apache.hudi.config.metrics.HoodieMetricsConfig.newBuilder()
-            .on(true)
-            .withReporterType("INMEMORY")
-            .build())
-        .build();
-
-    HoodieTable<String, String, String, String> table = mock(HoodieTable.class, RETURNS_DEEP_STUBS);
-    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
-    TestWriteClient writeClient = new TestWriteClient(writeConfig, table, Option.empty(), tableServiceClient);
-
-    try (MockedStatic<TransactionUtils> mockedTransactionUtils = Mockito.mockStatic(TransactionUtils.class)) {
-      mockedTransactionUtils.when(() -> TransactionUtils.resolveWriteConflictIfAny(
-              any(), any(), any(), any(), any(), anyBoolean(), anySet()))
-          .thenThrow(new HoodieWriteConflictAwaitingIngestionInflightException("test pending ingestion conflict"));
-
-      Assertions.assertThrows(HoodieWriteConflictAwaitingIngestionInflightException.class,
-          () -> writeClient.resolveWriteConflict(table, new HoodieCommitMetadata(), Collections.emptySet()));
-    }
   }
 
   @Test

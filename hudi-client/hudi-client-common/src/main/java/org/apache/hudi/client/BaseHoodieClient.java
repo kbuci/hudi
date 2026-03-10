@@ -42,7 +42,6 @@ import static org.apache.hudi.config.HoodieWriteConfig.APPLICATION_ID;
 import org.apache.hudi.exception.HoodieCommitException;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
-import org.apache.hudi.exception.HoodieWriteConflictAwaitingIngestionInflightException;
 import org.apache.hudi.exception.HoodieWriteConflictException;
 import org.apache.hudi.metadata.HoodieTableMetadataWriter;
 import org.apache.hudi.metrics.HoodieMetrics;
@@ -230,12 +229,9 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
       TransactionUtils.resolveWriteConflictIfAny(table, this.txnManager.getCurrentTransactionOwner(),
           Option.of(metadata), config, txnManager.getLastCompletedTransactionOwner(), true, pendingInflightAndRequestedInstants);
       metrics.emitConflictResolutionSuccessful();
-    } catch (HoodieWriteConflictAwaitingIngestionInflightException e) {
-      metrics.emitConflictResolutionAwaitingIngestionInflight();
-      metrics.emitConflictResolutionFailed();
-      throw e;
     } catch (HoodieWriteConflictException e) {
       metrics.emitConflictResolutionFailed();
+      e.getCategory().ifPresent(metrics::emitConflictResolutionByCategory);
       throw e;
     } finally {
       if (conflictResolutionTimer != null) {

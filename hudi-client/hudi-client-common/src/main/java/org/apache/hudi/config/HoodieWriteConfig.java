@@ -676,12 +676,14 @@ public class HoodieWriteConfig extends HoodieConfig {
       .withDocumentation("Number of heartbeat misses, before a writer is deemed not alive and all pending writes are aborted.");
 
   public static final ConfigProperty<Boolean> CLUSTERING_BLOCK_FOR_PENDING_INGESTION = ConfigProperty
-      .key("hoodie.clustering.block_for_pending_ingestion")
+      .key("hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution")
       .defaultValue(false)
       .markAdvanced()
-      .withDocumentation("(Only applicable to PreferWriterConflictResolutionStrategy) When enabled, proactively prevents clustering from committing if there are any ongoing ingestion "
-          + "writes that have not transitioned from requested to inflight yet and have an active heartbeat, "
-          + "since ingestion may be targeting the same files and should have precedence (for that conflict resolution strategy).");
+      .withDocumentation("Only applicable when \"hoodie.write.concurrency.mode\" is set to OCC or NBCC and the conflict "
+          + "resolution strategy (\"hoodie.write.conflict.resolution.strategy\") is set to "
+          + "PreferWriterConflictResolutionStrategy. When enabled, proactively prevents clustering from committing if "
+          + "there are any ongoing ingestion writes that have not transitioned from requested to inflight yet and have "
+          + "an active heartbeat, since ingestion may be targeting the same files and should have precedence.");
 
   public static final ConfigProperty<String> WRITE_CONCURRENCY_MODE = ConfigProperty
       .key("hoodie.write.concurrency.mode")

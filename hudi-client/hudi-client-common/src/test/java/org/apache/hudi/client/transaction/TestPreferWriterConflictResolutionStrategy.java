@@ -29,7 +29,6 @@ import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.HoodieTestTable;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.exception.HoodieWriteConflictAwaitingIngestionInflightException;
 import org.apache.hudi.exception.HoodieWriteConflictException;
 
 import org.junit.jupiter.api.Assertions;
@@ -257,9 +256,8 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
-   * Confirms that clustering will check for candidate ingestion .requested instants
-   * and will self-abort if they may potentially conflict with the ongoing clustering plan,
-   * when the ingestion .requested instant has an active heartbeat.
+   * Confirms that clustering will detect a conflict with an ingestion .requested instant
+   * that has an active heartbeat, via hasConflict/resolveConflict (not getCandidateInstants).
    */
   @Test
   public void testClusterConflictingWithIngestionRequestedInstantWithActiveHeartbeat() throws Exception {
@@ -279,21 +277,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     createClusterRequested(currentWriterInstant, metaClient);
     createClusterInflight(currentWriterInstant, metaClient);
 
-    // ingestion writer creates a .requested instant (not yet inflight)
-    String ingestionInstantTime = WriteClientTestUtils.createNewInstantTime();
-    HoodieTestTable.of(metaClient).addRequestedCommit(ingestionInstantTime);
-
-    Option<HoodieInstant> currentInstant = Option.of(
-        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
-    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
-
-    // Without heartbeat, the .requested instant should be ignored (expired heartbeat)
-    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
-        metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
-        .collect(Collectors.toList());
-    Assertions.assertEquals(0, candidateInstants.size());
-
-    // Now start a heartbeat for a new ingestion writer
+    // ingestion writer creates a .requested instant with active heartbeat
     String activeIngestionInstantTime = WriteClientTestUtils.createNewInstantTime();
     HoodieTestTable.of(metaClient).addRequestedCommit(activeIngestionInstantTime);
     HoodieHeartbeatClient heartbeatClient = new HoodieHeartbeatClient(
@@ -301,14 +285,33 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
         (long) (1000 * 60), 5);
     heartbeatClient.start(activeIngestionInstantTime);
 
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
     try {
-      strategy.getCandidateInstants(
+      List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
           metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
           .collect(Collectors.toList());
-      Assertions.fail("Cannot reach here, exception should be thrown"
-          + " due to ongoing clustering finding an ingestion .requested with active heartbeat");
-    } catch (HoodieWriteConflictAwaitingIngestionInflightException e) {
-      // expected
+      // The .requested instant with active heartbeat should be returned as a candidate
+      Assertions.assertEquals(1, candidateInstants.size());
+      Assertions.assertEquals(activeIngestionInstantTime, candidateInstants.get(0).requestedTime());
+
+      HoodieCommitMetadata clusteringMetadata = new HoodieCommitMetadata();
+      clusteringMetadata.setOperationType(WriteOperationType.CLUSTER);
+      ConcurrentOperation thisOperation = new ConcurrentOperation(currentInstant.get(), clusteringMetadata);
+      ConcurrentOperation otherOperation = new ConcurrentOperation(candidateInstants.get(0), metaClient);
+
+      // hasConflict should detect the conflict
+      Assertions.assertTrue(strategy.hasConflict(thisOperation, otherOperation));
+
+      // resolveConflict should throw with TABLE_SERVICE_VS_INGESTION category
+      HoodieWriteConflictException thrown = Assertions.assertThrows(
+          HoodieWriteConflictException.class,
+          () -> strategy.resolveConflict(null, thisOperation, otherOperation));
+      Assertions.assertTrue(thrown.getCategory().isPresent());
+      Assertions.assertEquals(HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION,
+          thrown.getCategory().get());
     } finally {
       heartbeatClient.stop(activeIngestionInstantTime);
       heartbeatClient.close();
@@ -475,6 +478,43 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
+   * Confirms that when the .requested instant has an expired heartbeat (no heartbeat file),
+   * clustering does NOT treat it as a conflict even when blocking is enabled.
+   */
+  @Test
+  public void testClusterWithBlockingEnabledAndExpiredHeartbeatRequested() throws Exception {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .withClusteringBlockForPendingIngestion(true)
+        .withHeartbeatIntervalInMs(60 * 1000)
+        .withHeartbeatTolerableMisses(2)
+        .build();
+
+    createCommit(WriteClientTestUtils.createNewInstantTime(), metaClient);
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    Option<HoodieInstant> lastSuccessfulInstant = timeline.getCommitsTimeline().filterCompletedInstants().lastInstant();
+
+    // clustering gets scheduled and goes inflight
+    String currentWriterInstant = WriteClientTestUtils.createNewInstantTime();
+    createClusterRequested(currentWriterInstant, metaClient);
+    createClusterInflight(currentWriterInstant, metaClient);
+
+    // ingestion writer creates a .requested instant but never starts a heartbeat (simulates expired/dead writer)
+    String expiredIngestionInstantTime = WriteClientTestUtils.createNewInstantTime();
+    HoodieTestTable.of(metaClient).addRequestedCommit(expiredIngestionInstantTime);
+
+    Option<HoodieInstant> currentInstant = Option.of(
+        INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
+    PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
+
+    // The .requested instant with expired heartbeat should be filtered out
+    List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
+        metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
+        .collect(Collectors.toList());
+    Assertions.assertEquals(0, candidateInstants.size());
+  }
+
+  /**
    * Confirms that compaction (non-clustering table service) going through the new overload
    * with write config still picks up inflight ingestion instants as candidates.
    */
@@ -510,21 +550,24 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   @Test
-  public void testHoodieWriteConflictAwaitingIngestionInflightExceptionConstructors() {
-    String msg = "test message";
-    Exception cause = new RuntimeException("cause");
+  public void testConflictCategoryOnWriteConflictException() {
+    String msg = "test conflict";
 
-    HoodieWriteConflictAwaitingIngestionInflightException e1 =
-        new HoodieWriteConflictAwaitingIngestionInflightException(msg);
+    HoodieWriteConflictException e1 = new HoodieWriteConflictException(
+        HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION, msg);
     Assertions.assertEquals(msg, e1.getMessage());
+    Assertions.assertTrue(e1.getCategory().isPresent());
+    Assertions.assertEquals(HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION, e1.getCategory().get());
 
-    HoodieWriteConflictAwaitingIngestionInflightException e2 =
-        new HoodieWriteConflictAwaitingIngestionInflightException(cause);
-    Assertions.assertEquals(cause, e2.getCause());
+    HoodieWriteConflictException e2 = new HoodieWriteConflictException(msg);
+    Assertions.assertFalse(e2.getCategory().isPresent());
 
-    HoodieWriteConflictAwaitingIngestionInflightException e3 =
-        new HoodieWriteConflictAwaitingIngestionInflightException(msg, cause);
+    Exception cause = new RuntimeException("cause");
+    HoodieWriteConflictException e3 = new HoodieWriteConflictException(
+        HoodieWriteConflictException.ConflictCategory.INGESTION_VS_TABLE_SERVICE, msg, cause);
     Assertions.assertEquals(msg, e3.getMessage());
     Assertions.assertEquals(cause, e3.getCause());
+    Assertions.assertTrue(e3.getCategory().isPresent());
+    Assertions.assertEquals(HoodieWriteConflictException.ConflictCategory.INGESTION_VS_TABLE_SERVICE, e3.getCategory().get());
   }
 }

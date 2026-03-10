@@ -19,6 +19,8 @@
 package org.apache.hudi.client.transaction;
 
 import org.apache.hudi.common.heartbeat.HoodieHeartbeatUtils;
+import org.apache.hudi.common.model.HoodieCommitMetadata;
+import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -26,7 +28,8 @@ import org.apache.hudi.common.util.ClusteringUtils;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.exception.HoodieWriteConflictAwaitingIngestionInflightException;
+import org.apache.hudi.exception.HoodieWriteConflictException;
+import org.apache.hudi.table.HoodieTable;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -62,9 +65,10 @@ public class PreferWriterConflictResolutionStrategy
   public Stream<HoodieInstant> getCandidateInstants(HoodieTableMetaClient metaClient, HoodieInstant currentInstant,
                                                     Option<HoodieInstant> lastSuccessfulInstant, Option<HoodieWriteConfig> writeConfigOpt) {
     HoodieActiveTimeline activeTimeline = metaClient.reloadActiveTimeline();
-    boolean isClustering = ClusteringUtils.isClusteringInstant(activeTimeline, currentInstant, metaClient.getInstantGenerator());
-    if (isClustering || COMPACTION_ACTION.equals(currentInstant.getAction())) {
-      return getCandidateInstantsForTableServicesCommits(activeTimeline, currentInstant, isClustering, metaClient, writeConfigOpt);
+    boolean isCurrentOperationClustering = ClusteringUtils.isClusteringInstant(activeTimeline, currentInstant, metaClient.getInstantGenerator());
+
+    if (isCurrentOperationClustering || COMPACTION_ACTION.equals(currentInstant.getAction())) {
+      return getCandidateInstantsForTableServicesCommits(activeTimeline, currentInstant, isCurrentOperationClustering, metaClient, writeConfigOpt);
     } else {
       return getCandidateInstantsForNonTableServicesCommits(activeTimeline, currentInstant);
     }
@@ -88,22 +92,20 @@ public class PreferWriterConflictResolutionStrategy
   }
 
   /**
-   * To find which instants are conflicting, we apply the following logic
-   * Get both completed instants and ingestion inflight commits that have happened since the last successful write.
-   * We need to check for write conflicts since they may have mutated the same files
-   * that are being newly created by the current write.
+   * Returns candidate instants for table service commits (clustering or compaction).
+   * Includes both completed instants and ingestion inflight commits that have happened
+   * since the current write started.
    *
-   * <p>If the current write is clustering and blocking for pending ingestion is enabled, additionally
-   * checks all ingestion .requested instants and asserts that they belong to failed writes (expired heartbeat).
-   * Otherwise raises {@link HoodieWriteConflictAwaitingIngestionInflightException} since we do not want
-   * to risk committing clustering while an active ingestion write may conflict.</p>
+   * <p>If the current write is clustering and
+   * {@code hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution} is enabled,
+   * also includes ingestion {@code .requested} instants (filtering out those with expired heartbeats)
+   * so they can be evaluated by {@link #hasConflict} and {@link #resolveConflict}.</p>
    */
   private Stream<HoodieInstant> getCandidateInstantsForTableServicesCommits(
       HoodieActiveTimeline activeTimeline, HoodieInstant currentInstant,
       boolean isCurrentOperationClustering, HoodieTableMetaClient metaClient,
       Option<HoodieWriteConfig> writeConfigOpt) {
 
-    // Fetch list of completed commits.
     Stream<HoodieInstant> completedCommitsStream =
         activeTimeline
             .getTimelineOfActions(CollectionUtils.createSet(COMMIT_ACTION, REPLACE_COMMIT_ACTION, COMPACTION_ACTION, DELTA_COMMIT_ACTION))
@@ -111,26 +113,14 @@ public class PreferWriterConflictResolutionStrategy
             .findInstantsModifiedAfterByCompletionTime(currentInstant.requestedTime())
             .getInstantsAsStream();
 
-    // Determine blocking config and heartbeat timeout from write config (or defaults).
-    boolean blockForPendingIngestion;
-    long maxHeartbeatIntervalMs;
-    if (writeConfigOpt.isPresent()) {
-      HoodieWriteConfig writeConfig = writeConfigOpt.get();
-      blockForPendingIngestion = writeConfig.isClusteringBlockForPendingIngestion();
-      maxHeartbeatIntervalMs = writeConfig.getHoodieClientHeartbeatIntervalInMs()
-          * (writeConfig.getHoodieClientHeartbeatTolerableMisses() + 1);
-    } else {
-      blockForPendingIngestion = (boolean) HoodieWriteConfig.CLUSTERING_BLOCK_FOR_PENDING_INGESTION.defaultValue();
-      maxHeartbeatIntervalMs = (long) (int) HoodieWriteConfig.CLIENT_HEARTBEAT_INTERVAL_IN_MS.defaultValue()
-          * ((int) HoodieWriteConfig.CLIENT_HEARTBEAT_NUM_TOLERABLE_MISSES.defaultValue() + 1);
-    }
+    boolean blockForPendingIngestion = writeConfigOpt.isPresent()
+        && writeConfigOpt.get().isClusteringBlockForPendingIngestion();
 
-    // Fetch list of ingestion inflight commits.
-    // If the current write is clustering and blocking is enabled, also check ingestion .requested
-    // instants and verify they belong to failed writes (expired heartbeat). If a .requested instant
-    // has an active heartbeat, throw to abort clustering rather than risk conflicting with ingestion.
     Stream<HoodieInstant> inflightIngestionCommitsStream;
     if (isCurrentOperationClustering && blockForPendingIngestion) {
+      HoodieWriteConfig writeConfig = writeConfigOpt.get();
+      long maxHeartbeatIntervalMs = writeConfig.getHoodieClientHeartbeatIntervalInMs()
+          * (writeConfig.getHoodieClientHeartbeatTolerableMisses() + 1);
       inflightIngestionCommitsStream = activeTimeline
           .getTimelineOfActions(CollectionUtils.createSet(COMMIT_ACTION, DELTA_COMMIT_ACTION, REPLACE_COMMIT_ACTION))
           .filterInflightsAndRequested()
@@ -139,14 +129,8 @@ public class PreferWriterConflictResolutionStrategy
           .filter(i -> {
             if (i.isRequested()) {
               try {
-                if (HoodieHeartbeatUtils.isHeartbeatExpired(i.requestedTime(), maxHeartbeatIntervalMs,
-                    metaClient.getStorage(), metaClient.getBasePath().toString())) {
-                  return false;
-                } else {
-                  throw new HoodieWriteConflictAwaitingIngestionInflightException(
-                      String.format("Pending ingestion instant %s with active heartbeat "
-                          + "has not transitioned to inflight yet but may potentially conflict with current clustering", i));
-                }
+                return !HoodieHeartbeatUtils.isHeartbeatExpired(i.requestedTime(), maxHeartbeatIntervalMs,
+                    metaClient.getStorage(), metaClient.getBasePath().toString());
               } catch (IOException e) {
                 throw new RuntimeException(e);
               }
@@ -160,12 +144,48 @@ public class PreferWriterConflictResolutionStrategy
           .getInstantsAsStream();
     }
 
-    // Merge and sort the instants and return.
     List<HoodieInstant> instantsToConsider = Stream.concat(completedCommitsStream, inflightIngestionCommitsStream)
-        .sorted(Comparator.comparing(o -> o.getCompletionTime()))
+        .sorted(Comparator.comparing(HoodieInstant::getCompletionTime, Comparator.nullsLast(Comparator.naturalOrder())))
         .collect(Collectors.toList());
     log.info("Instants that may have conflict with {} are {}", currentInstant, instantsToConsider);
     return instantsToConsider.stream();
+  }
+
+  @Override
+  public boolean hasConflict(ConcurrentOperation thisOperation, ConcurrentOperation otherOperation) {
+    // A .requested ingestion instant only appears as a candidate when
+    // getCandidateInstantsForTableServicesCommits determined that blocking is
+    // enabled and the heartbeat is still active, so no additional config check
+    // is needed here.
+    if (thisOperation.getOperationType() == WriteOperationType.CLUSTER
+        && isRequestedIngestionInstant(otherOperation)) {
+      log.info("Clustering operation {} conflicts with pending ingestion instant {} "
+          + "that has an active heartbeat", thisOperation, otherOperation);
+      return true;
+    }
+    return super.hasConflict(thisOperation, otherOperation);
+  }
+
+  @Override
+  public Option<HoodieCommitMetadata> resolveConflict(HoodieTable table,
+      ConcurrentOperation thisOperation, ConcurrentOperation otherOperation) {
+    if (thisOperation.getOperationType() == WriteOperationType.CLUSTER
+        && isRequestedIngestionInstant(otherOperation)) {
+      throw new HoodieWriteConflictException(
+          HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION,
+          String.format("Pending ingestion instant %s with active heartbeat has not transitioned to "
+              + "inflight yet but may potentially conflict with current clustering operation %s",
+              otherOperation, thisOperation));
+    }
+    return super.resolveConflict(table, thisOperation, otherOperation);
+  }
+
+  private boolean isRequestedIngestionInstant(ConcurrentOperation operation) {
+    String state = operation.getInstantActionState();
+    String actionType = operation.getInstantActionType();
+    return HoodieInstant.State.REQUESTED.name().equals(state)
+        && (COMMIT_ACTION.equals(actionType) || DELTA_COMMIT_ACTION.equals(actionType)
+            || (REPLACE_COMMIT_ACTION.equals(actionType) && operation.getOperationType() != WriteOperationType.CLUSTER));
   }
 
   @Override
