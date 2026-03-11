@@ -306,7 +306,7 @@ public class HoodieClusteringJob {
       HoodieTableMetaClient metaClient,
       List<String> partitions) {
     Set<String> partitionSet = partitions.stream().collect(Collectors.toSet());
-    return ClusteringUtils.getAllPendingClusteringPlans(metaClient).stream()
+    return ClusteringUtils.getAllPendingClusteringPlans(metaClient)
         .filter(planPair -> {
           HoodieClusteringPlan plan = planPair.getRight();
           return plan.getInputGroups().stream()
