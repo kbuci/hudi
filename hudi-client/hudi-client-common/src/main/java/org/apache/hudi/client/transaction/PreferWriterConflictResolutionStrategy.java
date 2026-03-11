@@ -20,7 +20,6 @@ package org.apache.hudi.client.transaction;
 
 import org.apache.hudi.common.heartbeat.HoodieHeartbeatUtils;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
-import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -52,6 +51,8 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.REPLACE_COMMI
 public class PreferWriterConflictResolutionStrategy
     extends SimpleConcurrentFileWritesConflictResolutionStrategy {
 
+  private boolean isClusteringBlockForPendingIngestion;
+
   /**
    * For tableservices like replacecommit and compaction commits this method also returns ingestion inflight commits.
    */
@@ -66,6 +67,8 @@ public class PreferWriterConflictResolutionStrategy
                                                     Option<HoodieInstant> lastSuccessfulInstant, Option<HoodieWriteConfig> writeConfigOpt) {
     HoodieActiveTimeline activeTimeline = metaClient.reloadActiveTimeline();
     boolean isCurrentOperationClustering = ClusteringUtils.isClusteringInstant(activeTimeline, currentInstant, metaClient.getInstantGenerator());
+    this.isClusteringBlockForPendingIngestion = isCurrentOperationClustering
+        && writeConfigOpt.isPresent() && writeConfigOpt.get().isClusteringBlockForPendingIngestion();
 
     if (isCurrentOperationClustering || COMPACTION_ACTION.equals(currentInstant.getAction())) {
       return getCandidateInstantsForTableServicesCommits(activeTimeline, currentInstant, isCurrentOperationClustering, metaClient, writeConfigOpt);
@@ -113,11 +116,8 @@ public class PreferWriterConflictResolutionStrategy
             .findInstantsModifiedAfterByCompletionTime(currentInstant.requestedTime())
             .getInstantsAsStream();
 
-    boolean blockForPendingIngestion = writeConfigOpt.isPresent()
-        && writeConfigOpt.get().isClusteringBlockForPendingIngestion();
-
     Stream<HoodieInstant> inflightIngestionCommitsStream;
-    if (isCurrentOperationClustering && blockForPendingIngestion) {
+    if (isClusteringBlockForPendingIngestion) {
       HoodieWriteConfig writeConfig = writeConfigOpt.get();
       long maxHeartbeatIntervalMs = writeConfig.getHoodieClientHeartbeatIntervalInMs()
           * (writeConfig.getHoodieClientHeartbeatTolerableMisses() + 1);
@@ -153,11 +153,8 @@ public class PreferWriterConflictResolutionStrategy
 
   @Override
   public boolean hasConflict(ConcurrentOperation thisOperation, ConcurrentOperation otherOperation) {
-    // A .requested ingestion instant only appears as a candidate when
-    // getCandidateInstantsForTableServicesCommits determined that blocking is
-    // enabled and the heartbeat is still active, so no additional config check
-    // is needed here.
-    if (thisOperation.getOperationType() == WriteOperationType.CLUSTER
+    if (isClusteringBlockForPendingIngestion
+        && thisOperation.isClusteringOperation()
         && isRequestedIngestionInstant(otherOperation)) {
       log.info("Clustering operation {} conflicts with pending ingestion instant {} "
           + "that has an active heartbeat", thisOperation, otherOperation);
@@ -169,7 +166,8 @@ public class PreferWriterConflictResolutionStrategy
   @Override
   public Option<HoodieCommitMetadata> resolveConflict(HoodieTable table,
       ConcurrentOperation thisOperation, ConcurrentOperation otherOperation) {
-    if (thisOperation.getOperationType() == WriteOperationType.CLUSTER
+    if (isClusteringBlockForPendingIngestion
+        && thisOperation.isClusteringOperation()
         && isRequestedIngestionInstant(otherOperation)) {
       throw new HoodieWriteConflictException(
           HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION,
@@ -185,7 +183,7 @@ public class PreferWriterConflictResolutionStrategy
     String actionType = operation.getInstantActionType();
     return HoodieInstant.State.REQUESTED.name().equals(state)
         && (COMMIT_ACTION.equals(actionType) || DELTA_COMMIT_ACTION.equals(actionType)
-            || (REPLACE_COMMIT_ACTION.equals(actionType) && operation.getOperationType() != WriteOperationType.CLUSTER));
+            || (REPLACE_COMMIT_ACTION.equals(actionType) && !operation.isClusteringOperation()));
   }
 
   @Override

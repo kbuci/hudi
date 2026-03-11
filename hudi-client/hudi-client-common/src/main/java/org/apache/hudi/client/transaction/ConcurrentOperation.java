@@ -59,6 +59,8 @@ public class ConcurrentOperation {
 
   @Getter
   private WriteOperationType operationType;
+  @Getter
+  private boolean clusteringOperation;
   private final HoodieMetadataWrapper metadataWrapper;
   @Getter
   private final Option<HoodieCommitMetadata> commitMetadataOption;
@@ -118,7 +120,7 @@ public class ConcurrentOperation {
           break;
         case COMMIT_ACTION:
         case DELTA_COMMIT_ACTION:
-          // Ingestion .requested instants have empty plan files, so the deserialized
+          // Ingestion .requested instants may have empty plan files, so the deserialized
           // commit metadata will be null. In that case we leave mutatedPartitionAndFileIds
           // empty and operationType unset, since the write has not started yet.
           org.apache.hudi.avro.model.HoodieCommitMetadata avroCommitMeta =
@@ -185,6 +187,7 @@ public class ConcurrentOperation {
           throw new IllegalArgumentException("Unsupported Action Type " + getInstantActionType());
       }
     }
+    this.clusteringOperation = WriteOperationType.CLUSTER.equals(this.operationType);
   }
 
   private static Set<Pair<String, String>> getPartitionAndFileIdsFromRequestedReplaceMetadata(HoodieRequestedReplaceMetadata requestedReplaceMetadata) {
