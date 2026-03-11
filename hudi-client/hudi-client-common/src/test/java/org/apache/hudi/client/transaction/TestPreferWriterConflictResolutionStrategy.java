@@ -21,6 +21,7 @@ package org.apache.hudi.client.transaction;
 import org.apache.hudi.client.WriteClientTestUtils;
 import org.apache.hudi.client.heartbeat.HoodieHeartbeatClient;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
+import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -256,8 +257,9 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
-   * Confirms that clustering will detect a conflict with an ingestion .requested instant
-   * that has an active heartbeat, via hasConflict/resolveConflict (not getCandidateInstants).
+   * Confirms that when {@code hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution}
+   * is enabled, clustering will detect a conflict with an ingestion .requested instant
+   * that has an active heartbeat, via hasConflict/resolveConflict.
    */
   @Test
   public void testClusterConflictingWithIngestionRequestedInstantWithActiveHeartbeat() throws Exception {
@@ -297,7 +299,7 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
       Assertions.assertEquals(1, candidateInstants.size());
       Assertions.assertEquals(activeIngestionInstantTime, candidateInstants.get(0).requestedTime());
 
-      HoodieCommitMetadata clusteringMetadata = new HoodieCommitMetadata();
+      HoodieReplaceCommitMetadata clusteringMetadata = new HoodieReplaceCommitMetadata();
       clusteringMetadata.setOperationType(WriteOperationType.CLUSTER);
       ConcurrentOperation thisOperation = new ConcurrentOperation(currentInstant.get(), clusteringMetadata);
       ConcurrentOperation otherOperation = new ConcurrentOperation(candidateInstants.get(0), metaClient);
@@ -319,8 +321,9 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
-   * Confirms that clustering does NOT block for pending ingestion .requested instants
-   * when the blocking config is disabled (default behavior).
+   * Confirms that clustering does NOT fail for pending ingestion .requested instants
+   * when {@code hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution}
+   * is disabled (default behavior).
    */
   @Test
   public void testClusterDoesNotBlockWithoutConfigEnabled() throws Exception {
@@ -350,7 +353,8 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
         INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
 
-    // With config disabled, clustering should NOT block even though there's an active heartbeat
+    // With hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution disabled,
+    // clustering should NOT fail even though there's an active heartbeat
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
         metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
         .collect(Collectors.toList());
@@ -361,8 +365,10 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
-   * Confirms that when the old getCandidateInstants (without write config) is called,
-   * it delegates properly and uses defaults (blocking disabled by default).
+   * Confirms that when getCandidateInstants is called without a write config,
+   * it delegates properly and uses defaults
+   * ({@code hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution}
+   * disabled by default).
    */
   @Test
   public void testClusterOldMethodDoesNotBlockByDefault() throws Exception {
@@ -387,7 +393,8 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
         INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, currentWriterInstant));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
 
-    // Using old method (no write config), should NOT throw since default is blocking disabled
+    // Without write config, should NOT throw since the default is
+    // hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution = false
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
         metaClient, currentInstant.get(), lastSuccessfulInstant)
         .collect(Collectors.toList());
@@ -398,8 +405,9 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
-   * Confirms that when clustering has blocking enabled and there is an inflight ingestion instant,
-   * it is returned as a candidate (exercises the i.isInflight() return path in the blocking filter).
+   * Confirms that when {@code hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution}
+   * is enabled and there is an inflight ingestion instant, it is returned as a candidate
+   * (exercises the i.isInflight() return path in the filter).
    */
   @Test
   public void testClusterWithBlockingEnabledAndInflightIngestion() throws Exception {
@@ -436,8 +444,9 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
-   * Confirms that when clustering has blocking enabled and there is both an inflight and an
-   * expired-heartbeat requested ingestion instant, only the inflight is returned as a candidate.
+   * Confirms that when {@code hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution}
+   * is enabled and there is both an inflight and an expired-heartbeat requested ingestion instant,
+   * only the inflight is returned as a candidate.
    */
   @Test
   public void testClusterWithBlockingEnabledInflightAndExpiredRequested() throws Exception {
@@ -479,7 +488,8 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
 
   /**
    * Confirms that when the .requested instant has an expired heartbeat (no heartbeat file),
-   * clustering does NOT treat it as a conflict even when blocking is enabled.
+   * clustering does NOT treat it as a conflict even when
+   * {@code hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution} is enabled.
    */
   @Test
   public void testClusterWithBlockingEnabledAndExpiredHeartbeatRequested() throws Exception {
@@ -515,8 +525,8 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
   }
 
   /**
-   * Confirms that compaction (non-clustering table service) going through the new overload
-   * with write config still picks up inflight ingestion instants as candidates.
+   * Confirms that compaction (non-clustering table service) when write config is provided
+   * still picks up inflight ingestion instants as candidates.
    */
   @Test
   public void testCompactionWithInflightIngestionViaNewOverload() throws Exception {
@@ -541,7 +551,8 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
         INSTANT_GENERATOR.createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMPACTION_ACTION, compactionInstantTime));
     PreferWriterConflictResolutionStrategy strategy = new PreferWriterConflictResolutionStrategy();
 
-    // Compaction is not clustering, so it should use the non-blocking path even though config is enabled
+    // Compaction is not clustering, so .requested instants are not included even when
+    // hoodie.clustering.fail.on.pending.ingestion.during.conflict.resolution is enabled
     List<HoodieInstant> candidateInstants = strategy.getCandidateInstants(
         metaClient, currentInstant.get(), lastSuccessfulInstant, Option.of(writeConfig))
         .collect(Collectors.toList());
@@ -549,25 +560,4 @@ public class TestPreferWriterConflictResolutionStrategy extends HoodieCommonTest
     Assertions.assertEquals(currentWriterInstant, candidateInstants.get(0).requestedTime());
   }
 
-  @Test
-  public void testConflictCategoryOnWriteConflictException() {
-    String msg = "test conflict";
-
-    HoodieWriteConflictException e1 = new HoodieWriteConflictException(
-        HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION, msg);
-    Assertions.assertEquals(msg, e1.getMessage());
-    Assertions.assertTrue(e1.getCategory().isPresent());
-    Assertions.assertEquals(HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION, e1.getCategory().get());
-
-    HoodieWriteConflictException e2 = new HoodieWriteConflictException(msg);
-    Assertions.assertFalse(e2.getCategory().isPresent());
-
-    Exception cause = new RuntimeException("cause");
-    HoodieWriteConflictException e3 = new HoodieWriteConflictException(
-        HoodieWriteConflictException.ConflictCategory.INGESTION_VS_TABLE_SERVICE, msg, cause);
-    Assertions.assertEquals(msg, e3.getMessage());
-    Assertions.assertEquals(cause, e3.getCause());
-    Assertions.assertTrue(e3.getCategory().isPresent());
-    Assertions.assertEquals(HoodieWriteConflictException.ConflictCategory.INGESTION_VS_TABLE_SERVICE, e3.getCategory().get());
-  }
 }

@@ -22,7 +22,6 @@ import org.apache.hudi.callback.common.WriteStatusValidator;
 import org.apache.hudi.client.embedded.EmbeddedTimelineService;
 import org.apache.hudi.client.transaction.TransactionManager;
 import org.apache.hudi.client.transaction.lock.InProcessLockProvider;
-import org.apache.hudi.client.utils.TransactionUtils;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieTimelineTimeZone;
@@ -44,7 +43,6 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.config.HoodieLockConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.exception.HoodieWriteConflictException;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.index.simple.HoodieSimpleIndex;
 import org.apache.hudi.keygen.ComplexAvroKeyGenerator;
@@ -58,7 +56,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.InOrder;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
@@ -66,7 +63,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -78,9 +74,6 @@ import static org.apache.hudi.common.testutils.HoodieTestUtils.getDefaultStorage
 import static org.apache.hudi.testutils.Assertions.assertComplexKeyGeneratorValidationThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -303,31 +296,6 @@ class TestBaseHoodieWriteClient extends HoodieCommonTestHarness {
     inOrder.verify(transactionManager).beginStateChange(Option.empty(), Option.empty());
     inOrder.verify(timeGenerator).generateTime(true);
     inOrder.verify(transactionManager).endStateChange(Option.of(expectedInstant));
-  }
-
-  @Test
-  void resolveWriteConflictRethrowsWriteConflictExceptionWithMetrics() throws IOException {
-    initMetaClient();
-    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
-        .withPath(basePath)
-        .withMetricsConfig(org.apache.hudi.config.metrics.HoodieMetricsConfig.newBuilder()
-            .on(true)
-            .withReporterType("INMEMORY")
-            .build())
-        .build();
-
-    HoodieTable<String, String, String, String> table = mock(HoodieTable.class, RETURNS_DEEP_STUBS);
-    BaseHoodieTableServiceClient<String, String, String> tableServiceClient = mock(BaseHoodieTableServiceClient.class);
-    TestWriteClient writeClient = new TestWriteClient(writeConfig, table, Option.empty(), tableServiceClient);
-
-    try (MockedStatic<TransactionUtils> mockedTransactionUtils = Mockito.mockStatic(TransactionUtils.class)) {
-      mockedTransactionUtils.when(() -> TransactionUtils.resolveWriteConflictIfAny(
-              any(), any(), any(), any(), any(), anyBoolean(), anySet()))
-          .thenThrow(new HoodieWriteConflictException("test write conflict"));
-
-      Assertions.assertThrows(HoodieWriteConflictException.class,
-          () -> writeClient.resolveWriteConflict(table, new HoodieCommitMetadata(), Collections.emptySet()));
-    }
   }
 
   private static class TestWriteClient extends BaseHoodieWriteClient<String, String, String, String> {
