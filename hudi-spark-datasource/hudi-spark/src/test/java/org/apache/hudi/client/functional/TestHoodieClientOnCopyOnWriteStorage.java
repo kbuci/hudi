@@ -1946,8 +1946,9 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
 
       SparkRDDWriteClient<?> clusteringWriteClient = getHoodieWriteClient(clusteringWriteConfig);
       String clusteringCommitTime = clusteringWriteClient.scheduleClustering(Option.empty()).get();
-      assertThrows(HoodieWriteConflictException.class,
+      HoodieClusteringException exception = assertThrows(HoodieClusteringException.class,
           () -> clusteringWriteClient.cluster(clusteringCommitTime, true));
+      assertTrue(exception.getCause() instanceof HoodieWriteConflictException);
     } finally {
       heartbeatClient.stop(ingestionRequestedTime);
       heartbeatClient.close();
