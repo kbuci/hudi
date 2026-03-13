@@ -20,6 +20,7 @@ package org.apache.hudi.client.transaction;
 
 import org.apache.hudi.common.heartbeat.HoodieHeartbeatUtils;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
+import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -154,7 +155,7 @@ public class PreferWriterConflictResolutionStrategy
   @Override
   public boolean hasConflict(ConcurrentOperation thisOperation, ConcurrentOperation otherOperation) {
     if (isClusteringBlockForPendingIngestion
-        && thisOperation.isClusteringOperation()
+        && WriteOperationType.CLUSTER.equals(thisOperation.getOperationType())
         && isRequestedIngestionInstant(otherOperation)) {
       log.info("Clustering operation {} conflicts with pending ingestion instant {} "
           + "that has an active heartbeat", thisOperation, otherOperation);
@@ -167,7 +168,7 @@ public class PreferWriterConflictResolutionStrategy
   public Option<HoodieCommitMetadata> resolveConflict(HoodieTable table,
       ConcurrentOperation thisOperation, ConcurrentOperation otherOperation) {
     if (isClusteringBlockForPendingIngestion
-        && thisOperation.isClusteringOperation()
+        && WriteOperationType.CLUSTER.equals(thisOperation.getOperationType())
         && isRequestedIngestionInstant(otherOperation)) {
       throw new HoodieWriteConflictException(
           HoodieWriteConflictException.ConflictCategory.TABLE_SERVICE_VS_INGESTION,
@@ -183,7 +184,7 @@ public class PreferWriterConflictResolutionStrategy
     String actionType = operation.getInstantActionType();
     return HoodieInstant.State.REQUESTED.name().equals(state)
         && (COMMIT_ACTION.equals(actionType) || DELTA_COMMIT_ACTION.equals(actionType)
-            || (REPLACE_COMMIT_ACTION.equals(actionType) && !operation.isClusteringOperation()));
+            || (REPLACE_COMMIT_ACTION.equals(actionType) && !WriteOperationType.CLUSTER.equals(operation.getOperationType())));
   }
 
   @Override

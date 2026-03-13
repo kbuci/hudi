@@ -59,8 +59,6 @@ public class ConcurrentOperation {
 
   @Getter
   private WriteOperationType operationType;
-  @Getter
-  private boolean clusteringOperation;
   private final HoodieMetadataWrapper metadataWrapper;
   @Getter
   private final Option<HoodieCommitMetadata> commitMetadataOption;
@@ -187,7 +185,6 @@ public class ConcurrentOperation {
           throw new IllegalArgumentException("Unsupported Action Type " + getInstantActionType());
       }
     }
-    this.clusteringOperation = WriteOperationType.CLUSTER.equals(this.operationType);
   }
 
   private static Set<Pair<String, String>> getPartitionAndFileIdsFromRequestedReplaceMetadata(HoodieRequestedReplaceMetadata requestedReplaceMetadata) {
