@@ -278,8 +278,8 @@ public class HoodieClusteringConfig extends HoodieConfig {
       .markAdvanced()
       .withDocumentation("When hoodie.clustering.enable.expirations is enabled, a clustering instant will not be "
           + "considered expired unless its instant creation time at least this many minutes old. This serves as a guardrail to avoid "
-          + "unecessary work in rolling back clustering instants that other writers are already attempting to roll back .");
-since 
+          + "unnecessary work in rolling back clustering instants that other writers are already attempting to roll back.");
+
   public static final ConfigProperty<String> SCHEDULE_INLINE_CLUSTERING = ConfigProperty
       .key("hoodie.clustering.schedule.inline")
       .defaultValue("false")
