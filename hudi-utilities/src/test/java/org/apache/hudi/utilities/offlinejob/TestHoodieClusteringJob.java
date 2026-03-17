@@ -183,10 +183,10 @@ public class TestHoodieClusteringJob extends HoodieOfflineJobTestBase {
   }
 
   @Test
-  public void testRollbackFailedClusteringForPartitions() throws Exception {
-    String tableBasePath = basePath + "/rollbackFailedClustering";
+  public void testExpiredClusteringRolledBackForPartitions() throws Exception {
+    String tableBasePath = basePath + "/expiredClusteringRollback";
     Properties props = getPropertiesForKeyGen(true);
-    HoodieWriteConfig config = getWriteConfigWithClusteringRollback(tableBasePath);
+    HoodieWriteConfig config = getWriteConfigWithClusteringExpiration(tableBasePath);
     props.putAll(config.getProps());
     metaClient = HoodieTableMetaClient.newTableBuilder()
         .setTableType(HoodieTableType.COPY_ON_WRITE)
@@ -220,10 +220,10 @@ public class TestHoodieClusteringJob extends HoodieOfflineJobTestBase {
   }
 
   @Test
-  public void testRollbackFailedClusteringSkipsInstantWithActiveHeartbeat() throws Exception {
-    String tableBasePath = basePath + "/rollbackSkipsActiveHeartbeat";
+  public void testClusteringExpirationSkipsInstantWithActiveHeartbeat() throws Exception {
+    String tableBasePath = basePath + "/expirationSkipsActiveHeartbeat";
     Properties props = getPropertiesForKeyGen(true);
-    HoodieWriteConfig config = getWriteConfigWithClusteringRollback(tableBasePath);
+    HoodieWriteConfig config = getWriteConfigWithClusteringExpiration(tableBasePath);
     props.putAll(config.getProps());
     metaClient = HoodieTableMetaClient.newTableBuilder()
         .setTableType(HoodieTableType.COPY_ON_WRITE)
@@ -309,10 +309,10 @@ public class TestHoodieClusteringJob extends HoodieOfflineJobTestBase {
         .build();
   }
 
-  private HoodieWriteConfig getWriteConfigWithClusteringRollback(String tableBasePath) {
+  private HoodieWriteConfig getWriteConfigWithClusteringExpiration(String tableBasePath) {
     Properties extraProps = new Properties();
-    extraProps.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
-    extraProps.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING_WAIT_MINUTES.key(), "0");
+    extraProps.setProperty(HoodieClusteringConfig.ENABLE_EXPIRATIONS.key(), "true");
+    extraProps.setProperty(HoodieClusteringConfig.EXPIRATION_TIME_MINS.key(), "0");
     return HoodieWriteConfig.newBuilder()
         .forTable("asyncClustering")
         .withPath(tableBasePath)

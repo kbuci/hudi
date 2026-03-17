@@ -43,6 +43,7 @@ import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.InstantGenerator;
 import org.apache.hudi.common.table.timeline.TimelineUtils;
@@ -81,9 +82,11 @@ import lombok.extern.slf4j.Slf4j;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
-import java.text.ParseException;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.Collections;
-import java.util.Date;
+
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -628,6 +631,9 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
           metrics.updateCommitMetrics(parsedInstant.getTime(), durationInMs, replaceCommitMetadata, HoodieActiveTimeline.CLUSTERING_ACTION)
       );
     }
+    if (config.isExpirationOfClusteringEnabled()) {
+      heartbeatClient.stop(clusteringCommitTime);
+    }
     log.info("Clustering successfully on commit {} for table {}", clusteringCommitTime, table.getConfig().getBasePath());
   }
 
@@ -729,7 +735,7 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
           Option<HoodieClusteringPlan> clusteringPlan = table
               .scheduleClustering(context, instantTime, extraMetadata);
           option = clusteringPlan.map(plan -> instantTime);
-          if (option.isPresent() && config.isRollbackFailedClustering()) {
+          if (option.isPresent() && config.isExpirationOfClusteringEnabled()) {
             heartbeatClient.start(instantTime);
             log.info("Started heartbeat for clustering instant {}", instantTime);
           }
@@ -1013,18 +1019,20 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
         String action = rollbackPlan.getInstantToRollback().getAction();
         String instantToRollback = rollbackPlan.getInstantToRollback().getCommitTime();
         if (ignoreCompactionAndClusteringInstants) {
-          if (HoodieTimeline.COMPACTION_ACTION.equals(action)) {
-            continue;
+          if (!HoodieTimeline.COMPACTION_ACTION.equals(action)) {
+            HoodieInstant instant = metaClient.getInstantGenerator()
+                .createNewInstant(HoodieInstant.State.INFLIGHT, action, instantToRollback);
+            boolean isClustering = ClusteringUtils.isClusteringInstant(
+                metaClient.getActiveTimeline(), instant, metaClient.getInstantGenerator());
+            if (!isClustering || isClusteringInstantEligibleForRollback(metaClient, instant)) {
+              infoMap.putIfAbsent(instantToRollback,
+                  Option.of(new HoodiePendingRollbackInfo(rollbackInstant, rollbackPlan)));
+            }
           }
-          HoodieInstant instant = metaClient.getInstantGenerator()
-              .createNewInstant(HoodieInstant.State.INFLIGHT, action, instantToRollback);
-          if (!isClusteringInstantEligibleForRollback(metaClient, instant)
-              && ClusteringUtils.isClusteringInstant(
-                  metaClient.getActiveTimeline(), instant, metaClient.getInstantGenerator())) {
-            continue;
-          }
+        } else {
+          infoMap.putIfAbsent(instantToRollback,
+              Option.of(new HoodiePendingRollbackInfo(rollbackInstant, rollbackPlan)));
         }
-        infoMap.putIfAbsent(instantToRollback, Option.of(new HoodiePendingRollbackInfo(rollbackInstant, rollbackPlan)));
       } catch (Exception e) {
         log.warn("Processing rollback plan failed for {}, skip the plan", rollbackInstant, e);
       }
@@ -1140,7 +1148,7 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
         }
       }).collect(Collectors.toList());
     } else if (cleaningPolicy.isLazy()) {
-      if (config.isRollbackFailedClustering()) {
+      if (config.isExpirationOfClusteringEnabled()) {
         Stream<HoodieInstant> eligibleClusteringInstants =
             metaClient.getActiveTimeline().filterInflightsAndRequested()
                 .getInstantsAsStream()
@@ -1180,19 +1188,23 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
   }
 
   public boolean isClusteringInstantEligibleForRollback(HoodieTableMetaClient metaClient, HoodieInstant instant) {
-    return config.isRollbackFailedClustering()
-        && isInstantOldEnough(instant.requestedTime(), config.getRollbackFailedClusteringWaitMinutes())
+    return config.isExpirationOfClusteringEnabled()
+        && hasInstantExpired(metaClient, instant.requestedTime(), config.getClusteringExpirationTimeMins())
         && ClusteringUtils.isClusteringInstant(
             metaClient.getActiveTimeline(), instant, metaClient.getInstantGenerator());
   }
 
-  private static boolean isInstantOldEnough(String instantTime, long waitMinutes) {
+  private static boolean hasInstantExpired(HoodieTableMetaClient metaClient, String instantTime, long expirationMins) {
     try {
-      Date instantDate = TimelineUtils.parseDateFromInstantTime(instantTime);
-      long ageMs = System.currentTimeMillis() - instantDate.getTime();
-      return ageMs >= TimeUnit.MINUTES.toMillis(waitMinutes);
-    } catch (ParseException e) {
-      log.warn("Could not parse instant time {}, assuming it is old enough for rollback", instantTime, e);
+      ZoneId zoneId = metaClient.getTableConfig().getTimelineTimezone().getZoneId();
+      LocalDateTime instantDateTime = LocalDateTime.parse(
+          HoodieInstantTimeGenerator.fixInstantTimeCompatibility(instantTime),
+          HoodieInstantTimeGenerator.MILLIS_INSTANT_TIME_FORMATTER);
+      long instantEpochMs = instantDateTime.atZone(zoneId).toInstant().toEpochMilli();
+      long ageMs = System.currentTimeMillis() - instantEpochMs;
+      return ageMs >= TimeUnit.MINUTES.toMillis(expirationMins);
+    } catch (DateTimeParseException e) {
+      log.warn("Could not parse instant time {}, assuming it has expired", instantTime, e);
       return true;
     }
   }

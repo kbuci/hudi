@@ -341,15 +341,22 @@ public class HoodieClusteringJob {
         })
         .filter(instantTime -> {
           try {
-            return HoodieHeartbeatUtils.isHeartbeatExpired(instantTime,
+            boolean expired = HoodieHeartbeatUtils.isHeartbeatExpired(instantTime,
                 maxAllowableHeartbeatIntervalInMs, metaClient.getStorage(), basePath);
+            if (!expired) {
+              return false;
+            }
+            // Reload timeline to handle the case where the instant committed and cleaned up
+            // its heartbeat after the timeline was first loaded
+            return metaClient.reloadActiveTimeline().filterInflightsAndRequested()
+                .containsInstant(instantTime);
           } catch (IOException e) {
             LOG.warn("Failed to check heartbeat for clustering instant {}", instantTime, e);
             return false;
           }
         })
         .forEach(instantTime -> {
-          LOG.info("Rolling back failed clustering instant {}", instantTime);
+          LOG.info("Rolling back expired clustering instant {}", instantTime);
           client.rollback(instantTime);
         });
   }

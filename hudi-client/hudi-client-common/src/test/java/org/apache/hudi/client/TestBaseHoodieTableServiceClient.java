@@ -35,6 +35,7 @@ import org.apache.hudi.common.testutils.InProcessTimeGenerator;
 import org.apache.hudi.common.testutils.MockHoodieTimeline;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieCleanConfig;
+import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.config.metrics.HoodieMetricsConfig;
 import org.apache.hudi.metrics.MetricsReporterType;
@@ -250,7 +251,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     verify(mockMetaClient).reloadActiveTimeline();
   }
 
-  // --- Tests for clustering rollback logic ---
+  // --- Tests for clustering expiration logic ---
 
   @Test
   void isClusteringInstantEligibleForRollback_returnsFalseWhenConfigDisabled() throws IOException {
@@ -258,7 +259,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath(basePath)
         .build();
-    assertFalse(writeConfig.isRollbackFailedClustering());
+    assertFalse(writeConfig.isExpirationOfClusteringEnabled());
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
     HoodieInstant clusteringInstant = metaClient.getInstantGenerator()
@@ -271,7 +272,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
   void isClusteringInstantEligibleForRollback_returnsFalseWhenInstantTooRecent() throws IOException {
     initMetaClient();
     Properties props = new Properties();
-    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
+    props.setProperty(HoodieClusteringConfig.ENABLE_EXPIRATIONS.key(), "true");
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath(basePath)
         .withProperties(props)
@@ -296,7 +297,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
   @Test
   void isClusteringInstantEligibleForRollback_returnsTrueWhenEligible() throws IOException {
     initMetaClient();
-    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollback(0L);
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringExpiration(0L);
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
@@ -316,7 +317,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
   @Test
   void isClusteringInstantEligibleForRollback_returnsFalseForNonClusteringInstant() throws IOException {
     initMetaClient();
-    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollback(0L);
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringExpiration(0L);
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
@@ -330,7 +331,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
   @Test
   void getInstantsToRollback_includesEligibleClusteringInstantsWithExpiredHeartbeat() throws IOException {
     initMetaClient();
-    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollbackAndLazy(0L);
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringExpirationAndLazy(0L);
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
@@ -353,7 +354,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
   @Test
   void getInstantsToRollback_skipsClusteringInstantsWithActiveHeartbeat() throws IOException {
     initMetaClient();
-    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollbackAndLazy(0L);
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringExpirationAndLazy(0L);
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
@@ -380,7 +381,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
   @Test
   void getInstantsToRollback_skipsRecentClusteringInstants() throws IOException {
     initMetaClient();
-    HoodieWriteConfig writeConfig = buildConfigWithClusteringRollbackAndLazy(60L);
+    HoodieWriteConfig writeConfig = buildConfigWithClusteringExpirationAndLazy(60L);
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
@@ -409,7 +410,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
             .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
             .build())
         .build();
-    assertFalse(writeConfig.isRollbackFailedClustering());
+    assertFalse(writeConfig.isExpirationOfClusteringEnabled());
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
@@ -433,20 +434,20 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     return TimelineUtils.formatDate(oldDate);
   }
 
-  private HoodieWriteConfig buildConfigWithClusteringRollback(long waitMinutes) {
+  private HoodieWriteConfig buildConfigWithClusteringExpiration(long expirationMins) {
     Properties props = new Properties();
-    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
-    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING_WAIT_MINUTES.key(), String.valueOf(waitMinutes));
+    props.setProperty(HoodieClusteringConfig.ENABLE_EXPIRATIONS.key(), "true");
+    props.setProperty(HoodieClusteringConfig.EXPIRATION_TIME_MINS.key(), String.valueOf(expirationMins));
     return HoodieWriteConfig.newBuilder()
         .withPath(basePath)
         .withProperties(props)
         .build();
   }
 
-  private HoodieWriteConfig buildConfigWithClusteringRollbackAndLazy(long waitMinutes) {
+  private HoodieWriteConfig buildConfigWithClusteringExpirationAndLazy(long expirationMins) {
     Properties props = new Properties();
-    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING.key(), "true");
-    props.setProperty(HoodieWriteConfig.ROLLBACK_FAILED_CLUSTERING_WAIT_MINUTES.key(), String.valueOf(waitMinutes));
+    props.setProperty(HoodieClusteringConfig.ENABLE_EXPIRATIONS.key(), "true");
+    props.setProperty(HoodieClusteringConfig.EXPIRATION_TIME_MINS.key(), String.valueOf(expirationMins));
     return HoodieWriteConfig.newBuilder()
         .withPath(basePath)
         .withProperties(props)
@@ -465,7 +466,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
         Collections.emptyIterator());
   }
 
-  // --- End clustering rollback tests ---
+  // --- End clustering expiration tests ---
 
   private static class TestTableServiceClient extends BaseHoodieTableServiceClient<String, String, String> {
     private final Iterator<HoodieTable<String, String, String, String>> tables;
