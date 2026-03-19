@@ -1152,7 +1152,14 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
         Stream<HoodieInstant> eligibleClusteringInstants =
             metaClient.getActiveTimeline().filterInflightsAndRequested()
                 .getInstantsAsStream()
-                .filter(instant -> isClusteringInstantEligibleForRollback(metaClient, instant));
+                .filter(instant -> {
+                  try {
+                    return isClusteringInstantEligibleForRollback(metaClient, instant);
+                  } catch (Exception e) {
+                    log.warn("Failed to check clustering eligibility for instant {}, skipping", instant.requestedTime(), e);
+                    return false;
+                  }
+                });
         inflightInstantsStream = Stream.concat(inflightInstantsStream, eligibleClusteringInstants);
       }
       return getInstantsToRollbackForLazyCleanPolicy(metaClient, inflightInstantsStream);
@@ -1188,25 +1195,23 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
   }
 
   public boolean isClusteringInstantEligibleForRollback(HoodieTableMetaClient metaClient, HoodieInstant instant) {
-    return config.isExpirationOfClusteringEnabled()
-        && hasInstantExpired(metaClient, instant.requestedTime(), config.getClusteringExpirationTimeMins())
-        && ClusteringUtils.isClusteringInstant(
-            metaClient.getActiveTimeline(), instant, metaClient.getInstantGenerator());
+    try {
+      return config.isExpirationOfClusteringEnabled()
+          && hasInstantExpired(metaClient, instant.requestedTime(), config.getClusteringExpirationTimeMins())
+          && heartbeatClient.isHeartbeatExpired(instant.requestedTime());
+    } catch (Exception e) {
+      throw new HoodieException("Failed to check heartbeat for clustering instant " + instant.requestedTime(), e);
+    }
   }
 
-  private static boolean hasInstantExpired(HoodieTableMetaClient metaClient, String instantTime, long expirationMins) {
-    try {
-      ZoneId zoneId = metaClient.getTableConfig().getTimelineTimezone().getZoneId();
-      LocalDateTime instantDateTime = LocalDateTime.parse(
-          HoodieInstantTimeGenerator.fixInstantTimeCompatibility(instantTime),
-          HoodieInstantTimeGenerator.MILLIS_INSTANT_TIME_FORMATTER);
-      long instantEpochMs = instantDateTime.atZone(zoneId).toInstant().toEpochMilli();
-      long ageMs = System.currentTimeMillis() - instantEpochMs;
-      return ageMs >= TimeUnit.MINUTES.toMillis(expirationMins);
-    } catch (DateTimeParseException e) {
-      log.warn("Could not parse instant time {}, assuming it has expired", instantTime, e);
-      return true;
-    }
+  private static boolean hasInstantExpired(HoodieTableMetaClient metaClient, String instantTime, long expirationMins) throws DateTimeParseException {
+    ZoneId zoneId = metaClient.getTableConfig().getTimelineTimezone().getZoneId();
+    LocalDateTime instantDateTime = LocalDateTime.parse(
+        HoodieInstantTimeGenerator.fixInstantTimeCompatibility(instantTime),
+        HoodieInstantTimeGenerator.MILLIS_INSTANT_TIME_FORMATTER);
+    long instantEpochMs = instantDateTime.atZone(zoneId).toInstant().toEpochMilli();
+    long ageMs = System.currentTimeMillis() - instantEpochMs;
+    return ageMs >= TimeUnit.MINUTES.toMillis(expirationMins);
   }
 
   /**

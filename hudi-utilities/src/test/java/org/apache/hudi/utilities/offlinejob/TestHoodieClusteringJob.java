@@ -170,13 +170,13 @@ public class TestHoodieClusteringJob extends HoodieOfflineJobTestBase {
     assertTrue(metaClient.getActiveTimeline().getFirstPendingClusterInstant().isPresent());
 
     // getPendingClusteringInstantsForPartitions should find the instant when queried with matching partitions
-    List<String> matchingInstants = HoodieClusteringJob.getPendingClusteringInstantsForPartitions(
+    List<HoodieInstant> matchingInstants = HoodieClusteringJob.getPendingClusteringInstantsForPartitions(
         metaClient, Arrays.asList(HoodieTestDataGenerator.DEFAULT_PARTITION_PATHS));
     assertFalse(matchingInstants.isEmpty(),
         "Should find pending clustering instants for data partitions");
 
     // getPendingClusteringInstantsForPartitions should return empty for non-overlapping partitions
-    List<String> noMatchInstants = HoodieClusteringJob.getPendingClusteringInstantsForPartitions(
+    List<HoodieInstant> noMatchInstants = HoodieClusteringJob.getPendingClusteringInstantsForPartitions(
         metaClient, Collections.singletonList("non/existent/partition"));
     assertTrue(noMatchInstants.isEmpty(),
         "Should not find pending clustering instants for non-existent partition");

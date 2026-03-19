@@ -21,7 +21,7 @@ package org.apache.hudi.utilities;
 import org.apache.hudi.avro.model.HoodieClusteringPlan;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.common.config.TypedProperties;
-import org.apache.hudi.common.heartbeat.HoodieHeartbeatUtils;
+
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -41,9 +41,10 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
+
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -294,17 +295,17 @@ public class HoodieClusteringJob {
   }
 
   /**
-   * Returns the instant times of all pending clustering plans that target any of the given partitions.
+   * Returns the pending clustering instants that target any of the given partitions.
    *
    * @param metaClient the table meta client
    * @param partitions list of partition paths to check against pending clustering plans
-   * @return list of clustering instant times targeting the given partitions
+   * @return list of clustering instants targeting the given partitions
    */
-  public static List<String> getPendingClusteringInstantsForPartitions(
+  public static List<HoodieInstant> getPendingClusteringInstantsForPartitions(
       HoodieTableMetaClient metaClient,
       List<String> partitions) {
-    Set<String> partitionSet = partitions.stream().collect(Collectors.toSet());
-    return ClusteringUtils.getAllPendingClusteringPlans(metaClient)
+    Set<String> partitionSet = new HashSet<>(partitions);
+    Set<String> matchingInstantTimes = ClusteringUtils.getAllPendingClusteringPlans(metaClient)
         .filter(planPair -> {
           HoodieClusteringPlan plan = planPair.getRight();
           return plan.getInputGroups().stream()
@@ -313,6 +314,10 @@ public class HoodieClusteringJob {
               .anyMatch(partitionSet::contains);
         })
         .map(planPair -> planPair.getLeft().requestedTime())
+        .collect(Collectors.toSet());
+    return metaClient.getActiveTimeline().filterInflightsAndRequested()
+        .getInstantsAsStream()
+        .filter(instant -> matchingInstantTimes.contains(instant.requestedTime()))
         .collect(Collectors.toList());
   }
 
@@ -329,36 +334,21 @@ public class HoodieClusteringJob {
       SparkRDDWriteClient<?> client,
       HoodieTableMetaClient metaClient,
       List<String> partitions) {
-    long maxAllowableHeartbeatIntervalInMs = client.getConfig().getHoodieClientHeartbeatIntervalInMs()
-        * client.getConfig().getHoodieClientHeartbeatTolerableMisses();
-    String basePath = metaClient.getBasePath().toString();
-
-    getPendingClusteringInstantsForPartitions(metaClient, partitions).stream()
-        .filter(instantTime -> {
-          HoodieInstant instant = metaClient.getInstantGenerator()
-              .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, instantTime);
-          return client.getTableServiceClient().isClusteringInstantEligibleForRollback(metaClient, instant);
-        })
-        .filter(instantTime -> {
-          try {
-            boolean expired = HoodieHeartbeatUtils.isHeartbeatExpired(instantTime,
-                maxAllowableHeartbeatIntervalInMs, metaClient.getStorage(), basePath);
-            if (!expired) {
-              return false;
-            }
-            // Reload timeline to handle the case where the instant committed and cleaned up
-            // its heartbeat after the timeline was first loaded
-            return metaClient.reloadActiveTimeline().filterInflightsAndRequested()
-                .containsInstant(instantTime);
-          } catch (IOException e) {
-            LOG.warn("Failed to check heartbeat for clustering instant {}", instantTime, e);
-            return false;
-          }
-        })
-        .forEach(instantTime -> {
-          LOG.info("Rolling back expired clustering instant {}", instantTime);
-          client.rollback(instantTime);
-        });
+    for (HoodieInstant instant : getPendingClusteringInstantsForPartitions(metaClient, partitions)) {
+      if (!client.getTableServiceClient().isClusteringInstantEligibleForRollback(metaClient, instant)) {
+        throw new HoodieException("Clustering instant " + instant.requestedTime()
+            + " targeting requested partitions is not eligible for rollback "
+            + "(heartbeat still active or instant too recent)");
+      }
+      // Reload timeline to handle the case where the instant committed and cleaned up
+      // its heartbeat after the timeline was first loaded
+      metaClient.reloadActiveTimeline();
+      if (metaClient.getActiveTimeline().filterInflightsAndRequested()
+          .containsInstant(instant.requestedTime())) {
+        LOG.info("Rolling back expired clustering instant {}", instant.requestedTime());
+        client.rollback(instant.requestedTime());
+      }
+    }
   }
 
   private void clean(SparkRDDWriteClient<?> client) {
