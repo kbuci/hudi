@@ -849,7 +849,7 @@ public class TestHoodieWriteConfig {
   }
 
   @Test
-  public void testClusteringExpirationInferredFromPreferWriterStrategy() {
+  public void testClusteringExpirationNotInferredFromPreferWriterStrategy() {
     Properties props = new Properties();
     props.setProperty(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME.key(),
         "org.apache.hudi.client.transaction.PreferWriterConflictResolutionStrategy");
@@ -857,11 +857,20 @@ public class TestHoodieWriteConfig {
         .withPath("/tmp")
         .withProperties(props)
         .build();
-    assertTrue(writeConfig.isExpirationOfClusteringEnabled());
+    assertFalse(writeConfig.isExpirationOfClusteringEnabled());
   }
 
   @Test
-  public void testClusteringExpirationNotInferredFromOtherStrategies() {
+  public void testUpdatesStrategyDefaultsToRejectStrategy() {
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath("/tmp")
+        .build();
+    assertEquals(HoodieClusteringConfig.SPARK_REJECT_UPDATE_STRATEGY_CLASS_NAME,
+        writeConfig.getClusteringUpdatesStrategyClass());
+  }
+
+  @Test
+  public void testUpdatesStrategyRejectWithOtherConflictStrategy() {
     Properties props = new Properties();
     props.setProperty(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME.key(),
         "org.apache.hudi.client.transaction.SimpleConcurrentFileWritesConflictResolutionStrategy");
@@ -869,7 +878,8 @@ public class TestHoodieWriteConfig {
         .withPath("/tmp")
         .withProperties(props)
         .build();
-    assertFalse(writeConfig.isExpirationOfClusteringEnabled());
+    assertEquals(HoodieClusteringConfig.SPARK_REJECT_UPDATE_STRATEGY_CLASS_NAME,
+        writeConfig.getClusteringUpdatesStrategyClass());
   }
 
   @Test

@@ -240,15 +240,18 @@ public class HoodieClusteringConfig extends HoodieConfig {
   static final String SPARK_ALLOW_UPDATE_STRATEGY_CLASS_NAME =
       "org.apache.hudi.client.clustering.update.strategy.SparkAllowUpdateStrategy";
 
+  static final String SPARK_REJECT_UPDATE_STRATEGY_CLASS_NAME =
+      "org.apache.hudi.client.clustering.update.strategy.SparkRejectUpdateStrategy";
+
   public static final ConfigProperty<String> UPDATES_STRATEGY = ConfigProperty
       .key("hoodie.clustering.updates.strategy")
-      .defaultValue("org.apache.hudi.client.clustering.update.strategy.SparkRejectUpdateStrategy")
+      .noDefaultValue()
       .withInferFunction(cfg -> {
         String strategy = cfg.getStringOrDefault(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME, "");
         if (PreferWriterConflictResolutionStrategy.class.getName().equals(strategy)) {
           return Option.of(SPARK_ALLOW_UPDATE_STRATEGY_CLASS_NAME);
         }
-        return Option.empty();
+        return Option.of(SPARK_REJECT_UPDATE_STRATEGY_CLASS_NAME);
       })
       .markAdvanced()
       .sinceVersion("0.7.0")
@@ -258,19 +261,12 @@ public class HoodieClusteringConfig extends HoodieConfig {
   public static final ConfigProperty<Boolean> ENABLE_EXPIRATIONS = ConfigProperty
       .key("hoodie.clustering.enable.expirations")
       .defaultValue(false)
-      .withInferFunction(cfg -> {
-        String strategy = cfg.getStringOrDefault(HoodieLockConfig.WRITE_CONFLICT_RESOLUTION_STRATEGY_CLASS_NAME, "");
-        if (PreferWriterConflictResolutionStrategy.class.getName().equals(strategy)) {
-          return Option.of(true);
-        }
-        return Option.empty();
-      })
       .markAdvanced()
       .withDocumentation("When enabled, rollback of failed writes (under LAZY cleaning policy) will also attempt to rollback "
-          + "clustering replacecommit instants whose heartbeat has expired. This is automatically enabled when using "
-          + "PreferWriterConflictResolutionStrategy. Clustering jobs will start a heartbeat before scheduling a plan, "
-          + "so that other writers can detect stale/failed clustering attempts. Note that the same "
-          + "client must be used to schedule, execute, and commit the clustering instant.");
+          + "clustering replacecommit instants whose heartbeat has expired. Clustering jobs will start a heartbeat before "
+          + "scheduling a plan, so that other writers can detect stale/failed clustering attempts. Note that the same "
+          + "client must be used to schedule, execute, and commit the clustering instant. And a clustering plan cannot be "
+          + "re-attempted");
 
   public static final ConfigProperty<Long> EXPIRATION_TIME_MINS = ConfigProperty
       .key("hoodie.clustering.expiration.time.mins")

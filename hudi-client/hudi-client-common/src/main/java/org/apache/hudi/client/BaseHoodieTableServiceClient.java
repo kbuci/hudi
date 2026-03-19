@@ -82,9 +82,9 @@ import lombok.extern.slf4j.Slf4j;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
-import java.time.LocalDateTime;
+import java.text.ParseException;
 import java.time.ZoneId;
-import java.time.format.DateTimeParseException;
+import java.time.ZonedDateTime;
 import java.util.Collections;
 
 import java.util.HashMap;
@@ -1204,13 +1204,11 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
     }
   }
 
-  private static boolean hasInstantExpired(HoodieTableMetaClient metaClient, String instantTime, long expirationMins) throws DateTimeParseException {
+  private static boolean hasInstantExpired(HoodieTableMetaClient metaClient, String instantTime, long expirationMins) throws ParseException {
     ZoneId zoneId = metaClient.getTableConfig().getTimelineTimezone().getZoneId();
-    LocalDateTime instantDateTime = LocalDateTime.parse(
-        HoodieInstantTimeGenerator.fixInstantTimeCompatibility(instantTime),
-        HoodieInstantTimeGenerator.MILLIS_INSTANT_TIME_FORMATTER);
-    long instantEpochMs = instantDateTime.atZone(zoneId).toInstant().toEpochMilli();
-    long ageMs = System.currentTimeMillis() - instantEpochMs;
+    long currentTimeMs = ZonedDateTime.ofInstant(java.time.Instant.now(), zoneId).toInstant().toEpochMilli();
+    long instantTimeMs = HoodieInstantTimeGenerator.parseDateFromInstantTime(instantTime).toInstant().toEpochMilli();
+    long ageMs = currentTimeMs - instantTimeMs;
     return ageMs >= TimeUnit.MINUTES.toMillis(expirationMins);
   }
 
