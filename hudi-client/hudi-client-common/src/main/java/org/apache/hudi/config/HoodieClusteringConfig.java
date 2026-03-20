@@ -515,7 +515,7 @@ public class HoodieClusteringConfig extends HoodieConfig {
    * @deprecated Use {@link #UPDATES_STRATEGY} and its methods instead
    */
   @Deprecated
-  public static final String DEFAULT_CLUSTERING_UPDATES_STRATEGY = UPDATES_STRATEGY.defaultValue();
+  public static final String DEFAULT_CLUSTERING_UPDATES_STRATEGY = SPARK_REJECT_UPDATE_STRATEGY_CLASS_NAME;
   /**
    * @deprecated Use {@link #ASYNC_CLUSTERING_ENABLE} and its methods instead
    */
