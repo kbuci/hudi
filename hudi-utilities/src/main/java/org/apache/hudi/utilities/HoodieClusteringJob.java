@@ -21,7 +21,6 @@ package org.apache.hudi.utilities;
 import org.apache.hudi.avro.model.HoodieClusteringPlan;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.common.config.TypedProperties;
-
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -40,7 +39,6 @@ import com.beust.jcommander.Parameter;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 import java.io.Serializable;
 import java.util.ArrayList;
