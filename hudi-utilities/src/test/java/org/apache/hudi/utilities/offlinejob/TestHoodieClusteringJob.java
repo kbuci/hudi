@@ -30,6 +30,7 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieCleanConfig;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.config.HoodieClusteringConfig;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
@@ -54,6 +55,7 @@ import static org.apache.hudi.utilities.UtilHelpers.SCHEDULE;
 import static org.apache.hudi.utilities.testutils.UtilitiesTestBase.Helpers.deleteFileFromDfs;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -248,8 +250,9 @@ public class TestHoodieClusteringJob extends HoodieOfflineJobTestBase {
     try (SparkRDDWriteClient rollbackClient = new SparkRDDWriteClient(context, config)) {
       rollbackClient.getHeartbeatClient().start(clusteringInstantTime);
 
-      HoodieClusteringJob.rollbackFailedClusteringForPartitions(
-          rollbackClient, metaClient, Arrays.asList(HoodieTestDataGenerator.DEFAULT_PARTITION_PATHS));
+      assertThrows(HoodieException.class, () ->
+          HoodieClusteringJob.rollbackFailedClusteringForPartitions(
+              rollbackClient, metaClient, Arrays.asList(HoodieTestDataGenerator.DEFAULT_PARTITION_PATHS)));
 
       rollbackClient.getHeartbeatClient().stop(clusteringInstantTime);
     }
