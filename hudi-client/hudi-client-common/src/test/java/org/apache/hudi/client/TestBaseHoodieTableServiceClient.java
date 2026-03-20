@@ -315,17 +315,25 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
   }
 
   @Test
-  void isClusteringInstantEligibleForRollback_returnsFalseForNonClusteringInstant() throws IOException {
+  void isClusteringInstantEligibleForRollback_returnsFalseWhenExpirationDisabled() throws IOException {
     initMetaClient();
-    HoodieWriteConfig writeConfig = buildConfigWithClusteringExpiration(0L);
+    HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
+        .withPath(basePath)
+        .build();
 
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
-    // A regular commit instant is not a clustering instant
-    HoodieInstant commitInstant = metaClient.getInstantGenerator()
-        .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.COMMIT_ACTION, createOldInstantTime());
+    String oldTime = createOldInstantTime();
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, HoodieTimeline.CLUSTERING_ACTION, oldTime);
+    timeline.createNewInstant(requestedInstant);
+    HoodieInstant inflightInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.INFLIGHT, HoodieTimeline.CLUSTERING_ACTION, oldTime);
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
 
-    assertFalse(client.isClusteringInstantEligibleForRollback(metaClient, commitInstant));
+    assertFalse(client.isClusteringInstantEligibleForRollback(metaClient, inflightInstant));
   }
 
   @Test
