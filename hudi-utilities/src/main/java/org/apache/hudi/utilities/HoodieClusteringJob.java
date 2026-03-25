@@ -19,6 +19,7 @@
 package org.apache.hudi.utilities;
 
 import org.apache.hudi.avro.model.HoodieClusteringPlan;
+import org.apache.hudi.client.BaseHoodieTableServiceClient;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
@@ -333,7 +334,8 @@ public class HoodieClusteringJob {
       HoodieTableMetaClient metaClient,
       List<String> partitions) {
     for (HoodieInstant instant : getPendingClusteringInstantsForPartitions(metaClient, partitions)) {
-      if (!client.getTableServiceClient().isClusteringInstantEligibleForRollback(metaClient, instant)) {
+      if (!BaseHoodieTableServiceClient.isClusteringInstantEligibleForRollback(
+          metaClient, instant, client.getConfig(), client.getHeartbeatClient())) {
         throw new HoodieException("Clustering instant " + instant.requestedTime()
             + " targeting requested partitions is not eligible for rollback "
             + "(heartbeat still active or instant too recent)");

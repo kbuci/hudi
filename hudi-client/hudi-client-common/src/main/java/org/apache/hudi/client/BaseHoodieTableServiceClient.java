@@ -29,6 +29,7 @@ import org.apache.hudi.avro.model.HoodieRollbackMetadata;
 import org.apache.hudi.avro.model.HoodieRollbackPlan;
 import org.apache.hudi.client.embedded.EmbeddedTimelineService;
 import org.apache.hudi.client.heartbeat.HeartbeatUtils;
+import org.apache.hudi.client.heartbeat.HoodieHeartbeatClient;
 import org.apache.hudi.client.timeline.HoodieTimelineArchiver;
 import org.apache.hudi.client.timeline.TimelineArchivers;
 import org.apache.hudi.common.HoodiePendingRollbackInfo;
@@ -1024,7 +1025,7 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
                 .createNewInstant(HoodieInstant.State.INFLIGHT, action, instantToRollback);
             boolean isClustering = ClusteringUtils.isClusteringInstant(
                 metaClient.getActiveTimeline(), instant, metaClient.getInstantGenerator());
-            if (!isClustering || isClusteringInstantEligibleForRollback(metaClient, instant)) {
+            if (!isClustering || isClusteringInstantEligibleForRollback(metaClient, instant, config, heartbeatClient)) {
               infoMap.putIfAbsent(instantToRollback,
                   Option.of(new HoodiePendingRollbackInfo(rollbackInstant, rollbackPlan)));
             }
@@ -1154,7 +1155,7 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
                 .getInstantsAsStream()
                 .filter(instant -> {
                   try {
-                    return isClusteringInstantEligibleForRollback(metaClient, instant);
+                    return isClusteringInstantEligibleForRollback(metaClient, instant, config, heartbeatClient);
                   } catch (Exception e) {
                     log.warn("Failed to check clustering eligibility for instant {}, skipping", instant.requestedTime(), e);
                     return false;
@@ -1194,10 +1195,12 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
     }
   }
 
-  public boolean isClusteringInstantEligibleForRollback(HoodieTableMetaClient metaClient, HoodieInstant instant) {
+  public static boolean isClusteringInstantEligibleForRollback(
+      HoodieTableMetaClient metaClient, HoodieInstant instant,
+      HoodieWriteConfig config, HoodieHeartbeatClient heartbeatClient) {
     try {
       return config.isExpirationOfClusteringEnabled()
-          && hasInstantExpired(metaClient, instant.requestedTime(), config.getClusteringExpirationTimeMins())
+          && hasInstantExpired(metaClient, instant.requestedTime(), config.getClusteringExpirationThresholdMins())
           && heartbeatClient.isHeartbeatExpired(instant.requestedTime());
     } catch (Exception e) {
       throw new HoodieException("Failed to check heartbeat for clustering instant " + instant.requestedTime(), e);

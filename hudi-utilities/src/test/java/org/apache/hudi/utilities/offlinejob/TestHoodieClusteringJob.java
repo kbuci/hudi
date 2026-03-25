@@ -315,7 +315,7 @@ public class TestHoodieClusteringJob extends HoodieOfflineJobTestBase {
   private HoodieWriteConfig getWriteConfigWithClusteringExpiration(String tableBasePath) {
     Properties extraProps = new Properties();
     extraProps.setProperty(HoodieClusteringConfig.ENABLE_EXPIRATIONS.key(), "true");
-    extraProps.setProperty(HoodieClusteringConfig.EXPIRATION_TIME_MINS.key(), "0");
+    extraProps.setProperty(HoodieClusteringConfig.EXPIRATION_THRESHOLD_MINS.key(), "0");
     return HoodieWriteConfig.newBuilder()
         .forTable("asyncClustering")
         .withPath(tableBasePath)

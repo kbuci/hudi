@@ -832,20 +832,20 @@ public class TestHoodieWriteConfig {
         .withPath("/tmp")
         .build();
     assertFalse(writeConfig.isExpirationOfClusteringEnabled());
-    assertEquals(60L, writeConfig.getClusteringExpirationTimeMins());
+    assertEquals(60L, writeConfig.getClusteringExpirationThresholdMins());
   }
 
   @Test
   public void testClusteringExpirationExplicitlyEnabled() {
     Properties props = new Properties();
     props.setProperty(HoodieClusteringConfig.ENABLE_EXPIRATIONS.key(), "true");
-    props.setProperty(HoodieClusteringConfig.EXPIRATION_TIME_MINS.key(), "30");
+    props.setProperty(HoodieClusteringConfig.EXPIRATION_THRESHOLD_MINS.key(), "30");
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder()
         .withPath("/tmp")
         .withProperties(props)
         .build();
     assertTrue(writeConfig.isExpirationOfClusteringEnabled());
-    assertEquals(30L, writeConfig.getClusteringExpirationTimeMins());
+    assertEquals(30L, writeConfig.getClusteringExpirationThresholdMins());
   }
 
   @Test

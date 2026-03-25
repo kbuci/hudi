@@ -268,12 +268,12 @@ public class HoodieClusteringConfig extends HoodieConfig {
           + "client must be used to schedule, execute, and commit the clustering instant. And a clustering plan cannot be "
           + "re-attempted");
 
-  public static final ConfigProperty<Long> EXPIRATION_TIME_MINS = ConfigProperty
-      .key("hoodie.clustering.expiration.time.mins")
+  public static final ConfigProperty<Long> EXPIRATION_THRESHOLD_MINS = ConfigProperty
+      .key("hoodie.clustering.expiration.threshold.mins")
       .defaultValue(60L)
       .markAdvanced()
       .withDocumentation("When hoodie.clustering.enable.expirations is enabled, a clustering instant will not be "
-          + "considered expired unless its instant creation time at least this many minutes old. This serves as a guardrail to avoid "
+          + "considered expired unless its instant creation time is at least this many minutes old. This serves as a guardrail to avoid "
           + "unnecessary work in rolling back clustering instants that other writers are already attempting to roll back.");
 
   public static final ConfigProperty<String> SCHEDULE_INLINE_CLUSTERING = ConfigProperty

@@ -2684,8 +2684,8 @@ public class HoodieWriteConfig extends HoodieConfig {
     return getBooleanOrDefault(HoodieClusteringConfig.ENABLE_EXPIRATIONS);
   }
 
-  public long getClusteringExpirationTimeMins() {
-    return getLong(HoodieClusteringConfig.EXPIRATION_TIME_MINS);
+  public long getClusteringExpirationThresholdMins() {
+    return getLong(HoodieClusteringConfig.EXPIRATION_THRESHOLD_MINS);
   }
 
   /**
