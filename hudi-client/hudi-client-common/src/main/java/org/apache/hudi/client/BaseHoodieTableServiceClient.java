@@ -1151,7 +1151,7 @@ public abstract class BaseHoodieTableServiceClient<I, T, O> extends BaseHoodieCl
     } else if (cleaningPolicy.isLazy()) {
       if (config.isExpirationOfClusteringEnabled()) {
         Stream<HoodieInstant> eligibleClusteringInstants =
-            metaClient.getActiveTimeline().filterInflightsAndRequested()
+            metaClient.getActiveTimeline().filterPendingClusteringTimeline()
                 .getInstantsAsStream()
                 .filter(instant -> {
                   try {
