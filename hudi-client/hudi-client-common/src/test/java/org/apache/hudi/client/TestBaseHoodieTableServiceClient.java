@@ -20,8 +20,11 @@ package org.apache.hudi.client;
 
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.avro.model.HoodieCleanerPlan;
+import org.apache.hudi.avro.model.HoodieClusteringPlan;
+import org.apache.hudi.avro.model.HoodieRequestedReplaceMetadata;
 import org.apache.hudi.client.embedded.EmbeddedTimelineService;
 import org.apache.hudi.common.HoodiePendingRollbackInfo;
+import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.model.HoodieFailedWritesCleaningPolicy;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
@@ -285,14 +288,9 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
     String recentTime = InProcessTimeGenerator.createNewInstantTime();
-    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
-    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
-        .createNewInstant(HoodieInstant.State.REQUESTED, clusteringAction, recentTime);
-    timeline.createNewInstant(requestedInstant);
+    createClusteringInstant(recentTime, clusteringAction);
     HoodieInstant inflightInstant = metaClient.getInstantGenerator()
         .createNewInstant(HoodieInstant.State.INFLIGHT, clusteringAction, recentTime);
-    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
-    metaClient.reloadActiveTimeline();
 
     assertFalse(BaseHoodieTableServiceClient.isClusteringInstantEligibleForRollback(
         metaClient, inflightInstant, writeConfig, client.getHeartbeatClient()));
@@ -308,14 +306,9 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
     String oldTime = createOldInstantTime();
-    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
-    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
-        .createNewInstant(HoodieInstant.State.REQUESTED, clusteringAction, oldTime);
-    timeline.createNewInstant(requestedInstant);
+    createClusteringInstant(oldTime, clusteringAction);
     HoodieInstant inflightInstant = metaClient.getInstantGenerator()
         .createNewInstant(HoodieInstant.State.INFLIGHT, clusteringAction, oldTime);
-    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
-    metaClient.reloadActiveTimeline();
 
     assertTrue(BaseHoodieTableServiceClient.isClusteringInstantEligibleForRollback(
         metaClient, inflightInstant, writeConfig, client.getHeartbeatClient()));
@@ -354,12 +347,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
     String oldClusteringTime = createOldInstantTime();
-    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
-    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
-        .createNewInstant(HoodieInstant.State.REQUESTED, clusteringAction, oldClusteringTime);
-    timeline.createNewInstant(requestedInstant);
-    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
-    metaClient.reloadActiveTimeline();
+    createClusteringInstant(oldClusteringTime, clusteringAction);
 
     List<String> instants = client.getInstantsToRollback(
         metaClient, HoodieFailedWritesCleaningPolicy.LAZY, Option.empty());
@@ -378,12 +366,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
     String oldClusteringTime = createOldInstantTime();
-    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
-    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
-        .createNewInstant(HoodieInstant.State.REQUESTED, clusteringAction, oldClusteringTime);
-    timeline.createNewInstant(requestedInstant);
-    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
-    metaClient.reloadActiveTimeline();
+    createClusteringInstant(oldClusteringTime, clusteringAction);
 
     client.getHeartbeatClient().start(oldClusteringTime);
 
@@ -406,12 +389,7 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
     TestTableServiceClient client = createSimpleTestClient(writeConfig);
 
     String recentTime = InProcessTimeGenerator.createNewInstantTime();
-    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
-    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
-        .createNewInstant(HoodieInstant.State.REQUESTED, clusteringAction, recentTime);
-    timeline.createNewInstant(requestedInstant);
-    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
-    metaClient.reloadActiveTimeline();
+    createClusteringInstant(recentTime, clusteringAction);
 
     List<String> instants = client.getInstantsToRollback(
         metaClient, HoodieFailedWritesCleaningPolicy.LAZY, Option.empty());
@@ -446,6 +424,28 @@ class TestBaseHoodieTableServiceClient extends HoodieCommonTestHarness {
 
     assertFalse(instants.contains(oldClusteringTime),
         "Clustering instants should NOT be rolled back when config is disabled");
+  }
+
+  private void createClusteringInstant(String instantTime, String clusteringAction) {
+    HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
+    HoodieInstant requestedInstant = metaClient.getInstantGenerator()
+        .createNewInstant(HoodieInstant.State.REQUESTED, clusteringAction, instantTime);
+    if (HoodieTimeline.REPLACE_COMMIT_ACTION.equals(clusteringAction)) {
+      HoodieRequestedReplaceMetadata metadata = HoodieRequestedReplaceMetadata.newBuilder()
+          .setOperationType(WriteOperationType.CLUSTER.name())
+          .setExtraMetadata(Collections.emptyMap())
+          .setClusteringPlan(HoodieClusteringPlan.newBuilder()
+              .setInputGroups(Collections.emptyList())
+              .setExtraMetadata(Collections.emptyMap())
+              .setVersion(1)
+              .build())
+          .build();
+      timeline.saveToPendingClusterCommit(requestedInstant, metadata);
+    } else {
+      timeline.createNewInstant(requestedInstant);
+    }
+    timeline.transitionClusterRequestedToInflight(requestedInstant, Option.empty());
+    metaClient.reloadActiveTimeline();
   }
 
   private String createOldInstantTime() {
