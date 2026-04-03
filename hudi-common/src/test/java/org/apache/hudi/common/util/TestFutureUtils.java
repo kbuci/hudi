@@ -79,17 +79,21 @@ public class TestFutureUtils {
     try {
       CountDownLatch allStarted = new CountDownLatch(3);
 
-      CompletableFuture<String> f1 = CompletableFuture.supplyAsync(() -> {
+      CompletableFuture<String> f1 = new CompletableFuture<>();
+      CompletableFuture<String> f2 = new CompletableFuture<>();
+      CompletableFuture<String> f3 = new CompletableFuture<>();
+
+      executor.submit(() -> {
         allStarted.countDown();
         try {
           allStarted.await(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
         }
-        throw new CompletionException(originalCause);
-      }, executor);
-
-      CompletableFuture<String> f2 = CompletableFuture.supplyAsync(() -> {
+        f1.completeExceptionally(originalCause);
+        return null;
+      });
+      executor.submit(() -> {
         allStarted.countDown();
         try {
           allStarted.await(5, TimeUnit.SECONDS);
@@ -97,10 +101,10 @@ public class TestFutureUtils {
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
         }
-        return "b";
-      }, executor);
-
-      CompletableFuture<String> f3 = CompletableFuture.supplyAsync(() -> {
+        f2.complete("b");
+        return null;
+      });
+      executor.submit(() -> {
         allStarted.countDown();
         try {
           allStarted.await(5, TimeUnit.SECONDS);
@@ -108,8 +112,9 @@ public class TestFutureUtils {
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
         }
-        return "c";
-      }, executor);
+        f3.complete("c");
+        return null;
+      });
 
       CompletableFuture<List<String>> result = FutureUtils.allOf(Arrays.asList(f1, f2, f3));
 

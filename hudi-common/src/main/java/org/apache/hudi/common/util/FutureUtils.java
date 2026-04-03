@@ -53,6 +53,8 @@ public class FutureUtils {
       future.whenComplete((ignored, throwable) -> {
         if (throwable != null) {
           firstFailure.compareAndSet(null, throwable);
+          // Note that {@link CompletableFuture#cancel} does not interrupt the other underlying tasks;
+          // it only marks their futures as cancelled. The tasks will still run to completion.
           futures.forEach(f -> f.cancel(true));
         }
       });
