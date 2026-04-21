@@ -25,6 +25,7 @@ import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
@@ -69,11 +70,10 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
       OutputStream outputStream,
       HoodieConfig config,
       HoodieSchema schema) throws IOException {
-    //TODO boundary to revisit in follow up to use HoodieSchema directly
     final RowType rowType = (RowType) RowDataQueryContexts.fromSchema(schema).getRowType().getLogicalType();
     HoodieRowDataParquetWriteSupport writeSupport =
         new HoodieRowDataParquetWriteSupport(
-            storage.getConf().unwrapAs(Configuration.class), rowType, null);
+            storage.getConf().unwrapAs(Configuration.class), rowType, null, Option.of(schema));
     return new HoodieRowDataParquetOutputStreamWriter(
         new FSDataOutputStream(outputStream, null), writeSupport, getParquetConfig(config, writeSupport));
   }
@@ -96,9 +96,8 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
       HoodieConfig config,
       HoodieSchema schema,
       TaskContextSupplier taskContextSupplier) throws IOException {
-    //TODO boundary to revisit in follow up to use HoodieSchema directly
     final RowType rowType = (RowType) RowDataQueryContexts.fromSchema(schema).getRowType().getLogicalType();
-    return newParquetFileWriter(instantTime, storagePath, config, rowType, taskContextSupplier);
+    return newParquetFileWriter(instantTime, storagePath, config, rowType, Option.of(schema), taskContextSupplier);
   }
 
   /**
@@ -118,6 +117,19 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
       HoodieConfig config,
       RowType rowType,
       TaskContextSupplier taskContextSupplier) throws IOException {
+    return newParquetFileWriter(instantTime, storagePath, config, rowType, Option.empty(), taskContextSupplier);
+  }
+
+  /**
+   * Create a parquet RowData writer on a given storage path with optional Variant-aware schema.
+   */
+  public HoodieFileWriter newParquetFileWriter(
+      String instantTime,
+      StoragePath storagePath,
+      HoodieConfig config,
+      RowType rowType,
+      Option<HoodieSchema> hoodieSchema,
+      TaskContextSupplier taskContextSupplier) throws IOException {
     boolean populateMetaFields = config.getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS);
     boolean withOperation = config.getBooleanOrDefault(HoodieWriteConfig.ALLOW_OPERATION_METADATA_FIELD);
 
@@ -127,10 +139,15 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
 
     Configuration conf = (Configuration) storageConfiguration.unwrapAs(Configuration.class);
     BloomFilter filter = createBloomFilter(hoodieConfig);
-    HoodieRowDataParquetWriteSupport writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
-        hoodieConfig.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS),
-        new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
-        conf, rowType, filter);
+    HoodieRowDataParquetWriteSupport writeSupport;
+    if (hoodieSchema.isPresent()) {
+      writeSupport = new HoodieRowDataParquetWriteSupport(conf, rowType, filter, hoodieSchema);
+    } else {
+      writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
+          hoodieConfig.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS),
+          new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
+          conf, rowType, filter);
+    }
 
     return new HoodieRowDataParquetWriter(storagePath, getParquetConfig(hoodieConfig, writeSupport),
         instantTime, taskContextSupplier, populateMetaFields, withOperation);
