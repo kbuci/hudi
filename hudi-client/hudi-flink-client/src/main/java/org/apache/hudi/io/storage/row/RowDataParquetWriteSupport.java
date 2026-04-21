@@ -19,6 +19,8 @@
 package org.apache.hudi.io.storage.row;
 
 import org.apache.hudi.common.config.HoodieStorageConfig;
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.io.storage.row.parquet.ParquetRowDataWriter;
 import org.apache.hudi.io.storage.row.parquet.ParquetSchemaConverter;
 
@@ -42,10 +44,21 @@ public class RowDataParquetWriteSupport extends WriteSupport<RowData> {
   protected final Configuration hadoopConf;
 
   public RowDataParquetWriteSupport(RowType rowType, Configuration config) {
+    this(rowType, config, Option.empty());
+  }
+
+  /**
+   * @param rowType      the Flink RowType describing the record structure
+   * @param config       Hadoop configuration
+   * @param hoodieSchema HoodieSchema for Variant-aware Parquet schema generation;
+   *                     when present, Variant columns emit the canonical Parquet layout
+   */
+  public RowDataParquetWriteSupport(RowType rowType, Configuration config, Option<HoodieSchema> hoodieSchema) {
     super();
     this.rowType = rowType;
     this.hadoopConf = new Configuration(config);
-    this.schema = ParquetSchemaConverter.convertToParquetMessageType("flink_schema", rowType);
+    this.schema = ParquetSchemaConverter.convertToParquetMessageType(
+        "flink_schema", rowType, hoodieSchema.orElse(null));
   }
 
   @Override
