@@ -318,6 +318,11 @@ public class RowDataToAvroConverters {
    * and the Avro Variant schema (which may have 3 fields for shredded Variants).
    */
   private static GenericRecord convertVariantToAvro(HoodieSchema variantSchema, RowData row) {
+    if (variantSchema instanceof HoodieSchema.Variant
+        && ((HoodieSchema.Variant) variantSchema).isShredded()) {
+      throw new UnsupportedOperationException(
+          "Shredded Variant is not yet supported in Flink. Use unshredded Variant instead.");
+    }
     GenericRecord record = new GenericData.Record(variantSchema.toAvroSchema());
     byte[] metadata = row.isNullAt(0) ? null : row.getBinary(0);
     byte[] value = row.isNullAt(1) ? null : row.getBinary(1);
