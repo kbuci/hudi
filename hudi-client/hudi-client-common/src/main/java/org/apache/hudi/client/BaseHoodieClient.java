@@ -327,6 +327,11 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
    * @param metadata Current commit metadata to be augmented with rolling metadata
    */
   protected void mergeRollingMetadata(HoodieTable table, HoodieCommitMetadata metadata) {
+    // IMPORTANT: We're inside the lock here. The timeline in 'table' is either:
+    // 1. Fresh from createTable() if no conflict resolution happened
+    // 2. Reloaded during resolveWriteConflict() if conflicts were checked
+    // In both cases, we have the latest view of the timeline.
+
     // Skip for metadata table - rolling metadata is only for data tables
     if (table.isMetadataTable()) {
       return;

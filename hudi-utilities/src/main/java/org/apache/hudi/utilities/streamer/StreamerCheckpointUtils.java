@@ -240,8 +240,10 @@ public class StreamerCheckpointUtils {
 
   /**
    * Fallback: search clean instants' extraMetadata for checkpoint keys.
-   * This is used when no commit on the commits timeline has valid checkpoint info,
-   * e.g., after archival removes all ingestion commits and only clean instants remain.
+   * This covers the case where rolling metadata was not configured on other commit types
+   * (e.g., clustering, compaction), so checkpoint info was only rolled into clean commits.
+   * After archival removes all ingestion commits, clean instants may be the only source
+   * of checkpoint metadata on the active timeline.
    */
   private static Option<Checkpoint> getCheckpointFromCleanInstants(
       HoodieTableMetaClient metaClient, HoodieStreamer.Config streamerConfig, TypedProperties props) {
