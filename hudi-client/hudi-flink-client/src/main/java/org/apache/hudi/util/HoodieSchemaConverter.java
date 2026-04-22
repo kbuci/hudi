@@ -563,9 +563,12 @@ public class HoodieSchemaConverter {
     if (schema.getType() != HoodieSchemaType.VARIANT) {
       throw new IllegalStateException("Expected HoodieSchema.Variant but got: " + schema.getClass());
     }
+    if (schema instanceof HoodieSchema.Variant
+        && ((HoodieSchema.Variant) schema).isShredded()) {
+      throw new UnsupportedOperationException(
+          "Shredded Variant is not yet supported in Flink. Use unshredded Variant instead.");
+    }
 
-    // Variant is stored as a struct with two binary fields: metadata and value.
-    // Field order follows the Parquet spec and Iceberg convention (metadata first, value second).
     return DataTypes.ROW(
         DataTypes.FIELD("metadata", DataTypes.BYTES().notNull()),
         DataTypes.FIELD("value", DataTypes.BYTES().notNull())
