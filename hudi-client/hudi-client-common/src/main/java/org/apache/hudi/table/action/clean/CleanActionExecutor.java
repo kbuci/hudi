@@ -21,6 +21,7 @@ package org.apache.hudi.table.action.clean;
 import org.apache.hudi.avro.model.HoodieActionInstant;
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.avro.model.HoodieCleanerPlan;
+import org.apache.hudi.client.BaseHoodieClient;
 import org.apache.hudi.client.transaction.TransactionManager;
 import org.apache.hudi.common.HoodieCleanStat;
 import org.apache.hudi.common.engine.HoodieEngineContext;
@@ -49,6 +50,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -224,6 +226,19 @@ public class CleanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K,
           cleanStats,
           cleanerPlan.getExtraMetadata()
       );
+      // Merge rolling metadata into clean's extraMetadata
+      Set<String> rollingKeys = config.getRollingMetadataKeys();
+      if (!rollingKeys.isEmpty() && !table.isMetadataTable()) {
+        Map<String, String> existingExtra = metadata.getExtraMetadata() != null
+            ? metadata.getExtraMetadata() : new HashMap<>();
+        Map<String, String> rolledMetadata =
+            BaseHoodieClient.findRollingMetadataFromTimeline(table, config, rollingKeys, existingExtra);
+        if (!rolledMetadata.isEmpty()) {
+          Map<String, String> merged = new HashMap<>(existingExtra);
+          merged.putAll(rolledMetadata);
+          metadata.setExtraMetadata(merged);
+        }
+      }
       this.txnManager.beginStateChange(Option.of(inflightInstant), Option.empty());
       writeTableMetadata(metadata, inflightInstant.requestedTime());
       table.getActiveTimeline().transitionCleanInflightToComplete(

@@ -19,6 +19,7 @@
 
 package org.apache.hudi.utilities.streamer;
 
+import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieTableType;
@@ -81,6 +82,11 @@ public class StreamerCheckpointUtils {
     // checkpoint resolution logic to resolve conflicting configurations.
     if (commitsTimelineOpt.isPresent()) {
       checkpoint = resolveCheckpointBetweenConfigAndPrevCommit(commitsTimelineOpt.get(), streamerConfig, props);
+    }
+    // Fallback: if no checkpoint found in commits timeline, check clean instants' extraMetadata.
+    // Clean instants carry rolled-over metadata when rolling metadata is configured.
+    if (!checkpoint.isPresent()) {
+      checkpoint = getCheckpointFromCleanInstants(metaClient, streamerConfig, props);
     }
     // If there is only streamer config, extract the checkpoint directly.
     checkpoint = useCkpFromOverrideConfigIfAny(streamerConfig, props, checkpoint);
@@ -230,5 +236,47 @@ public class StreamerCheckpointUtils {
         throw new HoodieIOException("failed to get latest instant with ValidCheckpointInfo", e);
       }
     }).orElse(Option.empty());
+  }
+
+  /**
+   * Fallback: search clean instants' extraMetadata for checkpoint keys.
+   * This is used when no commit on the commits timeline has valid checkpoint info,
+   * e.g., after archival removes all ingestion commits and only clean instants remain.
+   */
+  private static Option<Checkpoint> getCheckpointFromCleanInstants(
+      HoodieTableMetaClient metaClient, HoodieStreamer.Config streamerConfig, TypedProperties props) {
+    HoodieTimeline cleanerTimeline = metaClient.getActiveTimeline().getCleanerTimeline().filterCompletedInstants();
+    if (cleanerTimeline.empty()) {
+      return Option.empty();
+    }
+    return Option.fromJavaOptional(
+        cleanerTimeline.getReverseOrderedInstants()
+            .map(instant -> {
+              try {
+                HoodieCleanMetadata cleanMetadata = cleanerTimeline.readCleanMetadata(instant);
+                java.util.Map<String, String> extraMetadata = cleanMetadata.getExtraMetadata();
+                if (extraMetadata == null) {
+                  return null;
+                }
+                HoodieCommitMetadata facadeMetadata = new HoodieCommitMetadata();
+                for (java.util.Map.Entry<String, String> entry : extraMetadata.entrySet()) {
+                  facadeMetadata.addMetadata(entry.getKey(), entry.getValue());
+                }
+                if (!StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(HoodieStreamer.CHECKPOINT_KEY))
+                    || !StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(HoodieStreamer.CHECKPOINT_RESET_KEY))
+                    || !StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(STREAMER_CHECKPOINT_KEY_V2))
+                    || !StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(STREAMER_CHECKPOINT_RESET_KEY_V2))) {
+                  Checkpoint checkpoint = CheckpointUtils.getCheckpoint(facadeMetadata);
+                  if (!StringUtils.isNullOrEmpty(checkpoint.getCheckpointKey())) {
+                    return checkpoint;
+                  }
+                }
+              } catch (IOException e) {
+                throw new HoodieIOException("Failed to read clean metadata for instant " + instant.requestedTime(), e);
+              }
+              return null;
+            })
+            .filter(cp -> cp != null)
+            .findFirst());
   }
 }
