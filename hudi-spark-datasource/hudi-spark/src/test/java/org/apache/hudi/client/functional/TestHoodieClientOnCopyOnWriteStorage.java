@@ -1998,48 +1998,55 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
   @Test
   public void testRollingMetadataPreservedAcrossClusteringAfterArchival() throws Exception {
     String schemaKey = HoodieCommitMetadata.SCHEMA_KEY;
+    String testPartitionPath = "2016/09/26";
+    dataGen = new HoodieTestDataGenerator(new String[] {testPartitionPath});
 
-    HoodieClusteringConfig clusteringConfig = createClusteringBuilder(false, 1).build();
     HoodieWriteConfig config = getConfigBuilder()
-        .withClusteringConfig(clusteringConfig)
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder()
+            .compactionSmallFileSize(0).build())
         .withRollingMetadataKeys(schemaKey)
         .withArchivalConfig(HoodieArchivalConfig.newBuilder()
             .archiveCommitsWith(2, 3).build())
         .withCleanConfig(HoodieCleanConfig.newBuilder()
-            .withAutoClean(false)
-            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
-            .build())
+            .withAutoClean(false).build())
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
         .build();
 
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
-      // Insert + several upserts to create enough commits for archival
-      String firstCommit = WriteClientTestUtils.createNewInstantTime();
-      WriteClientTestUtils.startCommitWithTime(client, firstCommit);
-      List<HoodieRecord> records = dataGen.generateInserts(firstCommit, 100);
-      List<WriteStatus> statuses = client.insert(jsc.parallelize(records, 1), firstCommit).collect();
-      assertNoWriteErrors(statuses);
-
+      // Insert multiple batches so each creates a new file group (smallFileSize=0)
+      List<HoodieRecord> allRecords = new ArrayList<>();
       for (int i = 0; i < 5; i++) {
-        String commitTime = WriteClientTestUtils.createNewInstantTime();
-        WriteClientTestUtils.startCommitWithTime(client, commitTime);
-        List<HoodieRecord> updates = dataGen.generateUpdates(commitTime, records);
-        statuses = client.upsert(jsc.parallelize(updates, 1), commitTime).collect();
+        String commitTime = client.startCommit();
+        List<HoodieRecord> records = dataGen.generateInserts(commitTime, 50);
+        allRecords.addAll(records);
+        List<WriteStatus> statuses = client.insert(jsc.parallelize(records, 1), commitTime).collect();
         assertNoWriteErrors(statuses);
       }
 
-      // Run clustering twice
-      for (int i = 0; i < 2; i++) {
-        client.scheduleClustering(Option.empty());
-        HoodieTableMetaClient reloadedMeta = HoodieTableMetaClient.reload(metaClient);
-        Option<HoodieInstant> pendingClustering = reloadedMeta.getActiveTimeline()
-            .filterPendingClusteringTimeline().lastInstant();
-        if (pendingClustering.isPresent()) {
-          client.cluster(pendingClustering.get().requestedTime());
+      // Schedule and execute clustering (merges multiple small file groups)
+      HoodieWriteConfig clusterConfig = getConfigBuilder()
+          .withCompactionConfig(HoodieCompactionConfig.newBuilder()
+              .compactionSmallFileSize(0).build())
+          .withClusteringConfig(createClusteringBuilder(true, 1).build())
+          .withRollingMetadataKeys(schemaKey)
+          .withArchivalConfig(HoodieArchivalConfig.newBuilder()
+              .archiveCommitsWith(2, 3).build())
+          .withCleanConfig(HoodieCleanConfig.newBuilder()
+              .withAutoClean(false).build())
+          .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
+          .build();
+
+      // Execute clustering twice via separate writer with inline clustering config
+      for (int round = 0; round < 2; round++) {
+        try (SparkRDDWriteClient clusterClient = getHoodieWriteClient(clusterConfig)) {
+          Option<String> clusteringInstant = clusterClient.scheduleClustering(Option.empty());
+          assertTrue(clusteringInstant.isPresent(),
+              "Clustering plan should be created (round " + round + ")");
+          clusterClient.cluster(clusteringInstant.get());
         }
       }
 
-      // Run archival
+      // Run archival to remove old ingestion commits
       client.archive();
 
       // Verify clustering commits carry the schema via rolling metadata
@@ -2073,35 +2080,35 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
     String schemaKey = HoodieCommitMetadata.SCHEMA_KEY;
 
     HoodieWriteConfig config = getConfigBuilder()
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder()
+            .compactionSmallFileSize(0).build())
         .withRollingMetadataKeys(schemaKey)
         .withCleanConfig(HoodieCleanConfig.newBuilder()
             .withAutoClean(false)
-            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
-            .retainCommits(2)
+            .retainCommits(1)
             .build())
         .withArchivalConfig(HoodieArchivalConfig.newBuilder()
-            .archiveCommitsWith(4, 6).build())
+            .archiveCommitsWith(10, 12).build())
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(false).build())
         .build();
 
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
-      // Insert + several upserts to create cleanable file versions
-      String firstCommit = WriteClientTestUtils.createNewInstantTime();
-      WriteClientTestUtils.startCommitWithTime(client, firstCommit);
+      // Insert records then upsert to create superseded file versions
+      String firstCommit = client.startCommit();
       List<HoodieRecord> records = dataGen.generateInserts(firstCommit, 100);
       List<WriteStatus> statuses = client.insert(jsc.parallelize(records, 1), firstCommit).collect();
       assertNoWriteErrors(statuses);
 
       for (int i = 0; i < 4; i++) {
-        String commitTime = WriteClientTestUtils.createNewInstantTime();
-        WriteClientTestUtils.startCommitWithTime(client, commitTime);
+        String commitTime = client.startCommit();
         List<HoodieRecord> updates = dataGen.generateUpdates(commitTime, records);
         statuses = client.upsert(jsc.parallelize(updates, 1), commitTime).collect();
         assertNoWriteErrors(statuses);
       }
 
-      // Run clean — should carry rolled-over schema metadata
-      client.clean();
+      // Run clean — retainCommits(1) means old file versions from earlier commits are eligible
+      HoodieCleanMetadata cleanResult = client.clean();
+      assertTrue(cleanResult != null, "Clean should produce metadata (files to clean exist)");
 
       // Verify clean metadata has the schema via rolling metadata
       HoodieTableMetaClient freshMeta = HoodieTableMetaClient.reload(metaClient);
