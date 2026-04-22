@@ -168,7 +168,8 @@ public abstract class AbstractHoodieRowData implements RowData {
 
   protected abstract int rebaseOrdinal(int ordinal);
 
-  public Variant getVariant(int i) {
-    throw new UnsupportedOperationException("Variant is not supported yet.");
+  public Variant getVariant(int ordinal) {
+    RowData variantRow = row.getRow(rebaseOrdinal(ordinal), 2);
+    return HoodieVariant.fromRowData(variantRow);
   }
 }

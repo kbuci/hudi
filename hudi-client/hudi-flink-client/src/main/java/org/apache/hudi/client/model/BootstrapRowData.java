@@ -149,7 +149,8 @@ public class BootstrapRowData implements RowData {
     return getter.apply(pos);
   }
 
-  public Variant getVariant(int i) {
-    throw new UnsupportedOperationException("Variant is not supported yet.");
+  public Variant getVariant(int pos) {
+    RowData variantRow = row.getRow(pos, 2);
+    return HoodieVariant.fromRowData(variantRow);
   }
 }
