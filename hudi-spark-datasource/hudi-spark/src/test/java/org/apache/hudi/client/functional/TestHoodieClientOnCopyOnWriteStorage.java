@@ -62,7 +62,6 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.InstantGenerator;
 import org.apache.hudi.common.table.timeline.TimelineFactory;
-import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
 import org.apache.hudi.common.testutils.FileCreateUtilsLegacy;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
@@ -2001,7 +2000,7 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
     String schemaKey = HoodieCommitMetadata.SCHEMA_KEY;
 
     HoodieClusteringConfig clusteringConfig = createClusteringBuilder(false, 1).build();
-    HoodieWriteConfig config = getConfigBuilder(true)
+    HoodieWriteConfig config = getConfigBuilder()
         .withClusteringConfig(clusteringConfig)
         .withRollingMetadataKeys(schemaKey)
         .withArchivalConfig(HoodieArchivalConfig.newBuilder()
@@ -2015,15 +2014,15 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
 
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
       // Insert + several upserts to create enough commits for archival
-      String firstCommit = client.createNewInstantTime();
-      client.startCommitWithTime(firstCommit);
+      String firstCommit = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, firstCommit);
       List<HoodieRecord> records = dataGen.generateInserts(firstCommit, 100);
       List<WriteStatus> statuses = client.insert(jsc.parallelize(records, 1), firstCommit).collect();
       assertNoWriteErrors(statuses);
 
       for (int i = 0; i < 5; i++) {
-        String commitTime = client.createNewInstantTime();
-        client.startCommitWithTime(commitTime);
+        String commitTime = WriteClientTestUtils.createNewInstantTime();
+        WriteClientTestUtils.startCommitWithTime(client, commitTime);
         List<HoodieRecord> updates = dataGen.generateUpdates(commitTime, records);
         statuses = client.upsert(jsc.parallelize(updates, 1), commitTime).collect();
         assertNoWriteErrors(statuses);
@@ -2073,7 +2072,7 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
   public void testRollingMetadataPreservedInCleanCommits() throws Exception {
     String schemaKey = HoodieCommitMetadata.SCHEMA_KEY;
 
-    HoodieWriteConfig config = getConfigBuilder(true)
+    HoodieWriteConfig config = getConfigBuilder()
         .withRollingMetadataKeys(schemaKey)
         .withCleanConfig(HoodieCleanConfig.newBuilder()
             .withAutoClean(false)
@@ -2087,15 +2086,15 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
 
     try (SparkRDDWriteClient client = getHoodieWriteClient(config)) {
       // Insert + several upserts to create cleanable file versions
-      String firstCommit = client.createNewInstantTime();
-      client.startCommitWithTime(firstCommit);
+      String firstCommit = WriteClientTestUtils.createNewInstantTime();
+      WriteClientTestUtils.startCommitWithTime(client, firstCommit);
       List<HoodieRecord> records = dataGen.generateInserts(firstCommit, 100);
       List<WriteStatus> statuses = client.insert(jsc.parallelize(records, 1), firstCommit).collect();
       assertNoWriteErrors(statuses);
 
       for (int i = 0; i < 4; i++) {
-        String commitTime = client.createNewInstantTime();
-        client.startCommitWithTime(commitTime);
+        String commitTime = WriteClientTestUtils.createNewInstantTime();
+        WriteClientTestUtils.startCommitWithTime(client, commitTime);
         List<HoodieRecord> updates = dataGen.generateUpdates(commitTime, records);
         statuses = client.upsert(jsc.parallelize(updates, 1), commitTime).collect();
         assertNoWriteErrors(statuses);
