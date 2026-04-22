@@ -61,7 +61,15 @@ public class CheckpointUtils {
   }
 
   public static Checkpoint getCheckpoint(HoodieCommitMetadata commitMetadata) {
-    return getCheckpoint(commitMetadata.getExtraMetadata());
+    if (!StringUtils.isNullOrEmpty(commitMetadata.getMetadata(STREAMER_CHECKPOINT_KEY_V2))
+        || !StringUtils.isNullOrEmpty(commitMetadata.getMetadata(STREAMER_CHECKPOINT_RESET_KEY_V2))) {
+      return new StreamerCheckpointV2(commitMetadata);
+    }
+    if (!StringUtils.isNullOrEmpty(commitMetadata.getMetadata(STREAMER_CHECKPOINT_KEY_V1))
+        || !StringUtils.isNullOrEmpty(commitMetadata.getMetadata(STREAMER_CHECKPOINT_RESET_KEY_V1))) {
+      return new StreamerCheckpointV1(commitMetadata);
+    }
+    throw new HoodieException("Checkpoint is not found in the commit metadata: " + commitMetadata.getExtraMetadata());
   }
 
   public static Checkpoint getCheckpoint(Map<String, String> metadata) {
