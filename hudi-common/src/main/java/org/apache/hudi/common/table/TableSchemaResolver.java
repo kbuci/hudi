@@ -203,18 +203,10 @@ public class TableSchemaResolver {
   private Option<HoodieSchema> getTableSchemaFromLatestCommitMetadata(boolean includeMetadataFields) {
     Option<Pair<HoodieInstant, HoodieCommitMetadata>> instantAndCommitMetadata = getLatestCommitMetadataWithValidSchema();
     if (instantAndCommitMetadata.isPresent()) {
-      HoodieCommitMetadata commitMetadata = instantAndCommitMetadata.get().getRight();
-      String schemaStr = commitMetadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY);
-      HoodieSchema schema = HoodieSchema.parse(schemaStr);
-      if (includeMetadataFields) {
-        schema = HoodieSchemaUtils.addMetadataFields(schema, hasOperationField.get());
-      } else {
-        schema = HoodieSchemaUtils.removeMetadataFields(schema);
-      }
-      return Option.of(schema);
-    } else {
-      return Option.empty();
+      String schemaStr = instantAndCommitMetadata.get().getRight().getMetadata(HoodieCommitMetadata.SCHEMA_KEY);
+      return parseSchemaString(schemaStr, includeMetadataFields);
     }
+    return Option.empty();
   }
 
   /**
@@ -225,15 +217,8 @@ public class TableSchemaResolver {
     Option<Pair<HoodieInstant, HoodieCommitMetadata>> instantAndCommitMetadata =
         metaClient.getActiveTimeline().getLastCommitMetadataWithSchema();
     if (instantAndCommitMetadata.isPresent()) {
-      HoodieCommitMetadata commitMetadata = instantAndCommitMetadata.get().getRight();
-      String schemaStr = commitMetadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY);
-      HoodieSchema schema = HoodieSchema.parse(schemaStr);
-      if (includeMetadataFields) {
-        schema = HoodieSchemaUtils.addMetadataFields(schema, hasOperationField.get());
-      } else {
-        schema = HoodieSchemaUtils.removeMetadataFields(schema);
-      }
-      return Option.of(schema);
+      String schemaStr = instantAndCommitMetadata.get().getRight().getMetadata(HoodieCommitMetadata.SCHEMA_KEY);
+      return parseSchemaString(schemaStr, includeMetadataFields);
     }
     return Option.empty();
   }
@@ -259,34 +244,28 @@ public class TableSchemaResolver {
             .filter(cleanMeta -> cleanMeta.getExtraMetadata() != null)
             .map(cleanMeta -> cleanMeta.getExtraMetadata().get(HoodieCommitMetadata.SCHEMA_KEY))
             .filter(schemaStr -> !StringUtils.isNullOrEmpty(schemaStr))
-            .map(schemaStr -> {
-              HoodieSchema schema = HoodieSchema.parse(schemaStr);
-              if (includeMetadataFields) {
-                schema = HoodieSchemaUtils.addMetadataFields(schema, hasOperationField.get());
-              } else {
-                schema = HoodieSchemaUtils.removeMetadataFields(schema);
-              }
-              return schema;
-            })
+            .map(schemaStr -> parseSchemaString(schemaStr, includeMetadataFields).orElse(null))
+            .filter(schema -> schema != null)
             .findFirst());
+  }
+
+  private Option<HoodieSchema> parseSchemaString(String schemaStr, boolean includeMetadataFields) {
+    if (StringUtils.isNullOrEmpty(schemaStr)) {
+      return Option.empty();
+    }
+    HoodieSchema schema = HoodieSchema.parse(schemaStr);
+    if (includeMetadataFields) {
+      schema = HoodieSchemaUtils.addMetadataFields(schema, hasOperationField.get());
+    } else {
+      schema = HoodieSchemaUtils.removeMetadataFields(schema);
+    }
+    return Option.of(schema);
   }
 
   private Option<HoodieSchema> getTableSchemaFromCommitMetadata(HoodieInstant instant, boolean includeMetadataFields) {
     try {
       HoodieCommitMetadata metadata = getCachedCommitMetadata(instant);
-      String existingSchemaStr = metadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY);
-
-      if (StringUtils.isNullOrEmpty(existingSchemaStr)) {
-        return Option.empty();
-      }
-
-      HoodieSchema schema = HoodieSchema.parse(existingSchemaStr);
-      if (includeMetadataFields) {
-        schema = HoodieSchemaUtils.addMetadataFields(schema, hasOperationField.get());
-      } else {
-        schema = HoodieSchemaUtils.removeMetadataFields(schema);
-      }
-      return Option.of(schema);
+      return parseSchemaString(metadata.getMetadata(HoodieCommitMetadata.SCHEMA_KEY), includeMetadataFields);
     } catch (Exception e) {
       throw new HoodieException("Failed to read schema from commit metadata", e);
     }

@@ -260,15 +260,8 @@ public class StreamerCheckpointUtils {
                 if (extraMetadata == null) {
                   return null;
                 }
-                HoodieCommitMetadata facadeMetadata = new HoodieCommitMetadata();
-                for (java.util.Map.Entry<String, String> entry : extraMetadata.entrySet()) {
-                  facadeMetadata.addMetadata(entry.getKey(), entry.getValue());
-                }
-                if (!StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(HoodieStreamer.CHECKPOINT_KEY))
-                    || !StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(HoodieStreamer.CHECKPOINT_RESET_KEY))
-                    || !StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(STREAMER_CHECKPOINT_KEY_V2))
-                    || !StringUtils.isNullOrEmpty(facadeMetadata.getMetadata(STREAMER_CHECKPOINT_RESET_KEY_V2))) {
-                  Checkpoint checkpoint = CheckpointUtils.getCheckpoint(facadeMetadata);
+                if (CheckpointUtils.hasCheckpointKeys(extraMetadata)) {
+                  Checkpoint checkpoint = CheckpointUtils.getCheckpoint(extraMetadata);
                   if (!StringUtils.isNullOrEmpty(checkpoint.getCheckpointKey())) {
                     return checkpoint;
                   }
