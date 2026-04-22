@@ -18,6 +18,8 @@
 
 package org.apache.hudi.table.format.cow.vector;
 
+import org.apache.hudi.client.model.HoodieVariant;
+
 import org.apache.flink.table.data.ArrayData;
 import org.apache.flink.table.data.DecimalData;
 import org.apache.flink.table.data.MapData;
@@ -123,8 +125,9 @@ public class ColumnarGroupArrayData implements ArrayData {
   }
 
   @Override
-  public Variant getVariant(int i) {
-    throw new UnsupportedOperationException("Variant is not supported yet.");
+  public Variant getVariant(int index) {
+    RowData variantRow = getRow(index, 2);
+    return HoodieVariant.fromRowData(variantRow);
   }
 
   @Override

@@ -293,6 +293,9 @@ public class RowDataToAvroConverters {
 
       @Override
       public Object convert(HoodieSchema schema, Object object) {
+        if (schema.getType() == HoodieSchemaType.VARIANT) {
+          return convertVariantToAvro(schema, (RowData) object);
+        }
         final RowData row = (RowData) object;
         final List<HoodieSchemaField> fields = schema.getFields();
         final GenericRecord record = new GenericData.Record(schema.toAvroSchema());
@@ -306,6 +309,23 @@ public class RowDataToAvroConverters {
         return record;
       }
     };
+  }
+
+  /**
+   * Converts a Flink ROW (representing an unshredded Variant) directly to an Avro GenericRecord
+   * with the variant logicalType annotation. This bypasses the generic row converter to guard
+   * against field-count mismatches between the Flink ROW (always 2 fields: metadata, value)
+   * and the Avro Variant schema (which may have 3 fields for shredded Variants).
+   */
+  private static GenericRecord convertVariantToAvro(HoodieSchema variantSchema, RowData row) {
+    GenericRecord record = new GenericData.Record(variantSchema.toAvroSchema());
+    byte[] metadata = row.isNullAt(0) ? null : row.getBinary(0);
+    byte[] value = row.isNullAt(1) ? null : row.getBinary(1);
+    record.put(HoodieSchema.Variant.VARIANT_METADATA_FIELD,
+        metadata != null ? ByteBuffer.wrap(metadata) : null);
+    record.put(HoodieSchema.Variant.VARIANT_VALUE_FIELD,
+        value != null ? ByteBuffer.wrap(value) : null);
+    return record;
   }
 
   private static RowDataToAvroConverter createArrayConverter(ArrayType arrayType, boolean utcTimezone) {
