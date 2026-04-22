@@ -2033,6 +2033,11 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
       assertTrue(clusteringInstant.isPresent(),
           "Clustering plan should be created (round " + round + ")");
       clusterWriter.cluster(clusteringInstant.get());
+
+      // Insert more data so the next clustering round has new file groups to merge
+      for (int i = 0; i < 3; i++) {
+        insertCommitWithSchema(client, dataGen, 20, TRIP_EXAMPLE_SCHEMA);
+      }
     }
 
     // Run archival to remove old ingestion commits
