@@ -86,7 +86,8 @@ public class StreamerCheckpointUtils {
     }
     // Fallback: if no checkpoint found in commits timeline, check clean instants' extraMetadata.
     // Clean instants carry rolled-over metadata when rolling metadata is configured.
-    if (!checkpoint.isPresent()) {
+    // Skip this fallback when --ignore-checkpoint is set, since the user explicitly wants a fresh start.
+    if (!checkpoint.isPresent() && streamerConfig.ignoreCheckpoint == null) {
       checkpoint = getCheckpointFromCleanInstants(metaClient);
     }
     // If there is only streamer config, extract the checkpoint directly.
