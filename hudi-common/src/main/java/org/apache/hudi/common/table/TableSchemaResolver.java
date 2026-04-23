@@ -244,8 +244,7 @@ public class TableSchemaResolver {
             .filter(cleanMeta -> cleanMeta.getExtraMetadata() != null)
             .map(cleanMeta -> cleanMeta.getExtraMetadata().get(HoodieCommitMetadata.SCHEMA_KEY))
             .filter(schemaStr -> !StringUtils.isNullOrEmpty(schemaStr))
-            .map(schemaStr -> parseSchemaString(schemaStr, includeMetadataFields).orElse(null))
-            .filter(schema -> schema != null)
+            .flatMap(schemaStr -> parseSchemaString(schemaStr, includeMetadataFields).toJavaOptional().stream())
             .findFirst());
   }
 

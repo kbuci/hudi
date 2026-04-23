@@ -422,8 +422,9 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
       if (!remainingKeys.isEmpty()) {
         HoodieTimeline cleanerTimeline = table.getActiveTimeline().getCleanerTimeline().filterCompletedInstants();
         if (!cleanerTimeline.empty()) {
+          int remainingLookback = lookbackLimit - instantsWalkedBack;
           List<HoodieInstant> recentCleanInstants = cleanerTimeline.getReverseOrderedInstants()
-              .limit(lookbackLimit)
+              .limit(Math.max(remainingLookback, 1))
               .collect(Collectors.toList());
           for (HoodieInstant cleanInstant : recentCleanInstants) {
             if (remainingKeys.isEmpty()) {

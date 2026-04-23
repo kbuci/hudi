@@ -234,7 +234,9 @@ public class TimelineUtils {
 
   /**
    * Get extra metadata for specified key from latest commit/deltacommit/replacecommit(eg. insert_overwrite) instant.
-   * Falls back to clean instants if the key is not found in any commit.
+   * Falls back to clean instants if the key is not found in any commit. This fallback is intentional:
+   * after archival removes all ingestion commits, clean instants carrying rolled-over metadata may
+   * be the only source for checkpoint/schema keys on the active timeline.
    */
   public static Option<String> getExtraMetadataFromLatest(HoodieTableMetaClient metaClient, String extraMetadataKey) {
     Option<String> result = metaClient.getCommitsTimeline().filterCompletedInstants().getReverseOrderedInstants()
@@ -250,7 +252,8 @@ public class TimelineUtils {
 
   /**
    * Get extra metadata for specified key from latest commit/deltacommit/replacecommit instant including internal commits
-   * such as clustering. Falls back to clean instants if the key is not found in any commit.
+   * such as clustering. Falls back to clean instants if the key is not found in any commit. See
+   * {@link #getExtraMetadataFromLatest} for rationale on the clean-instant fallback.
    */
   public static Option<String> getExtraMetadataFromLatestIncludeClustering(HoodieTableMetaClient metaClient, String extraMetadataKey) {
     Option<String> result = metaClient.getCommitsTimeline().filterCompletedInstants().getReverseOrderedInstants()

@@ -226,9 +226,12 @@ public class CleanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K,
           cleanStats,
           cleanerPlan.getExtraMetadata()
       );
-      // Merge rolling metadata into clean's extraMetadata
+      this.txnManager.beginStateChange(Option.of(inflightInstant), Option.empty());
+      // Merge rolling metadata inside the state-change lock so we read the latest timeline,
+      // matching the same contract as mergeRollingMetadata for commit metadata.
       Set<String> rollingKeys = config.getRollingMetadataKeys();
       if (!rollingKeys.isEmpty() && !table.isMetadataTable()) {
+        table.getMetaClient().reloadActiveTimeline();
         Map<String, String> existingExtra = metadata.getExtraMetadata() != null
             ? metadata.getExtraMetadata() : new HashMap<>();
         Map<String, String> rolledMetadata =
@@ -239,7 +242,6 @@ public class CleanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K,
           metadata.setExtraMetadata(merged);
         }
       }
-      this.txnManager.beginStateChange(Option.of(inflightInstant), Option.empty());
       writeTableMetadata(metadata, inflightInstant.requestedTime());
       table.getActiveTimeline().transitionCleanInflightToComplete(
           false,

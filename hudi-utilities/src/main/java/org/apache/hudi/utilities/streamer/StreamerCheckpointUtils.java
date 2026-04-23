@@ -44,6 +44,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.util.Map;
 
 import static org.apache.hudi.common.table.checkpoint.CheckpointUtils.HOODIE_INCREMENTAL_SOURCES;
 import static org.apache.hudi.common.table.checkpoint.CheckpointUtils.buildCheckpointFromConfigOverride;
@@ -86,7 +87,7 @@ public class StreamerCheckpointUtils {
     // Fallback: if no checkpoint found in commits timeline, check clean instants' extraMetadata.
     // Clean instants carry rolled-over metadata when rolling metadata is configured.
     if (!checkpoint.isPresent()) {
-      checkpoint = getCheckpointFromCleanInstants(metaClient, streamerConfig, props);
+      checkpoint = getCheckpointFromCleanInstants(metaClient);
     }
     // If there is only streamer config, extract the checkpoint directly.
     checkpoint = useCkpFromOverrideConfigIfAny(streamerConfig, props, checkpoint);
@@ -245,8 +246,7 @@ public class StreamerCheckpointUtils {
    * After archival removes all ingestion commits, clean instants may be the only source
    * of checkpoint metadata on the active timeline.
    */
-  private static Option<Checkpoint> getCheckpointFromCleanInstants(
-      HoodieTableMetaClient metaClient, HoodieStreamer.Config streamerConfig, TypedProperties props) {
+  private static Option<Checkpoint> getCheckpointFromCleanInstants(HoodieTableMetaClient metaClient) {
     HoodieTimeline cleanerTimeline = metaClient.getActiveTimeline().getCleanerTimeline().filterCompletedInstants();
     if (cleanerTimeline.empty()) {
       return Option.empty();
@@ -256,7 +256,7 @@ public class StreamerCheckpointUtils {
             .map(instant -> {
               try {
                 HoodieCleanMetadata cleanMetadata = cleanerTimeline.readCleanMetadata(instant);
-                java.util.Map<String, String> extraMetadata = cleanMetadata.getExtraMetadata();
+                Map<String, String> extraMetadata = cleanMetadata.getExtraMetadata();
                 if (extraMetadata == null) {
                   return null;
                 }
