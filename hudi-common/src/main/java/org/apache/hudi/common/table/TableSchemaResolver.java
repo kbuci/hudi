@@ -232,20 +232,23 @@ public class TableSchemaResolver {
     if (cleanerTimeline.empty()) {
       return Option.empty();
     }
-    return Option.fromJavaOptional(
-        cleanerTimeline.getReverseOrderedInstants()
-            .map(instant -> {
-              try {
-                return cleanerTimeline.readCleanMetadata(instant);
-              } catch (IOException e) {
-                throw new HoodieIOException("Failed to read clean metadata for instant " + instant.requestedTime(), e);
-              }
-            })
-            .filter(cleanMeta -> cleanMeta.getExtraMetadata() != null)
-            .map(cleanMeta -> cleanMeta.getExtraMetadata().get(HoodieCommitMetadata.SCHEMA_KEY))
-            .filter(schemaStr -> !StringUtils.isNullOrEmpty(schemaStr))
-            .flatMap(schemaStr -> parseSchemaString(schemaStr, includeMetadataFields).toJavaOptional().stream())
-            .findFirst());
+    return cleanerTimeline.getReverseOrderedInstants()
+        .map(instant -> {
+          try {
+            return cleanerTimeline.readCleanMetadata(instant);
+          } catch (IOException e) {
+            throw new HoodieIOException("Failed to read clean metadata for instant " + instant.requestedTime(), e);
+          }
+        })
+        .filter(cleanMeta -> cleanMeta.getExtraMetadata() != null)
+        .map(cleanMeta -> cleanMeta.getExtraMetadata().get(HoodieCommitMetadata.SCHEMA_KEY))
+        .filter(schemaStr -> !StringUtils.isNullOrEmpty(schemaStr))
+        .map(schemaStr -> parseSchemaString(schemaStr, includeMetadataFields))
+        .filter(Option::isPresent)
+        .map(Option::get)
+        .findFirst()
+        .map(Option::of)
+        .orElse(Option.empty());
   }
 
   private Option<HoodieSchema> parseSchemaString(String schemaStr, boolean includeMetadataFields) {
