@@ -154,11 +154,11 @@ public interface HoodieActiveTimeline extends HoodieTimeline {
   /**
    * Returns most recent instant having valid schema in its {@link HoodieCommitMetadata}.
    *
-   * @param filterByCanUpdateSchema if true, only considers commits where
+   * @param filterForSchemaMutableOperations if true, only considers commits where
    *        {@link WriteOperationType#canUpdateSchema} is true (original behavior).
    *        If false, considers any commit type with a non-empty schema.
    */
-  Option<Pair<HoodieInstant, HoodieCommitMetadata>> getLastCommitMetadataWithValidSchema(boolean filterByCanUpdateSchema);
+  Option<Pair<HoodieInstant, HoodieCommitMetadata>> getLastCommitMetadataWithValidSchema(boolean filterForSchemaMutableOperations);
 
   /**
    * Get the last instant with valid data, and convert this to HoodieCommitMetadata
