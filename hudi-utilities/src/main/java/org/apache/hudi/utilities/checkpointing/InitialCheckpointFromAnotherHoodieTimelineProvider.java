@@ -62,9 +62,10 @@ public class InitialCheckpointFromAnotherHoodieTimelineProvider extends InitialC
           try {
             HoodieCommitMetadata commitMetadata =
                 anotherDsHoodieMetaClient.getActiveTimeline().readCommitMetadata(instant);
+            // Use CheckpointUtils to handle both V1 and V2 checkpoint keys
             return CheckpointUtils.getCheckpoint(commitMetadata).getCheckpointKey();
           } catch (HoodieException e) {
-            // No checkpoint found in this commit, skip to older instants
+            // No checkpoint found in this commit
             return null;
           } catch (IOException e) {
             throw new HoodieIOException("Failed to read commit metadata for instant " + instant.requestedTime(), e);
