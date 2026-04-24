@@ -2032,8 +2032,12 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
           "Clustering plan should be created (round " + round + ")");
       clusterWriter.cluster(clusteringInstant.get());
 
-      for (int i = 0; i < 3; i++) {
-        insertCommitWithSchema(client, dataGen, 20, TRIP_EXAMPLE_SCHEMA);
+      // Only insert after the first round so that the second clustering instant
+      // remains on the active timeline after archival
+      if (round < 1) {
+        for (int i = 0; i < 3; i++) {
+          insertCommitWithSchema(client, dataGen, 20, TRIP_EXAMPLE_SCHEMA);
+        }
       }
     }
 
