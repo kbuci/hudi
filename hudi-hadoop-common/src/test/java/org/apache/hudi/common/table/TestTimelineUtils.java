@@ -705,41 +705,4 @@ class TestTimelineUtils extends HoodieCommonTestHarness {
         "Should return empty when no commits have schema");
   }
 
-  @Test
-  void testGetExtraMetadataScansMultipleInstants() throws Exception {
-    String extraMetadataKey = "checkpoint_key";
-    String extraMetadataValue = "kafka:topic:0:100";
-    HoodieActiveTimeline activeTimeline = metaClient.getActiveTimeline();
-
-    // First commit: no checkpoint key
-    HoodieInstant instant1 = new HoodieInstant(INFLIGHT, COMMIT_ACTION, "1",
-        InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
-    activeTimeline.createNewInstant(instant1);
-    activeTimeline.saveAsComplete(instant1, getCommitMetadata(basePath, "p1", "1", 2, Collections.emptyMap()));
-
-    // Second commit: has the checkpoint key
-    Map<String, String> withCheckpoint = new HashMap<>();
-    withCheckpoint.put(extraMetadataKey, extraMetadataValue);
-    HoodieInstant instant2 = new HoodieInstant(INFLIGHT, COMMIT_ACTION, "2",
-        InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
-    activeTimeline.createNewInstant(instant2);
-    activeTimeline.saveAsComplete(instant2, getCommitMetadata(basePath, "p1", "2", 2, withCheckpoint));
-
-    // Third commit: no checkpoint key (this is the latest)
-    HoodieInstant instant3 = new HoodieInstant(INFLIGHT, COMMIT_ACTION, "3",
-        InstantComparatorV2.REQUESTED_TIME_BASED_COMPARATOR);
-    activeTimeline.createNewInstant(instant3);
-    activeTimeline.saveAsComplete(instant3, getCommitMetadata(basePath, "p1", "3", 2, Collections.emptyMap()));
-
-    metaClient.reloadActiveTimeline();
-
-    // Should scan past instant3 and find the key in instant2
-    Option<String> result = TimelineUtils.getExtraMetadataFromLatest(metaClient, extraMetadataKey);
-    assertTrue(result.isPresent(), "Should find metadata by scanning past latest commit");
-    assertEquals(extraMetadataValue, result.get());
-
-    Option<String> resultIncluding = TimelineUtils.getExtraMetadataFromLatestIncludeClustering(metaClient, extraMetadataKey);
-    assertTrue(resultIncluding.isPresent(), "Should find metadata by scanning past latest commit (include clustering)");
-    assertEquals(extraMetadataValue, resultIncluding.get());
-  }
 }

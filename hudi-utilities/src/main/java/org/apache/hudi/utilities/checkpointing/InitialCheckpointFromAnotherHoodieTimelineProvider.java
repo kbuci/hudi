@@ -64,10 +64,13 @@ public class InitialCheckpointFromAnotherHoodieTimelineProvider extends InitialC
                 anotherDsHoodieMetaClient.getActiveTimeline().readCommitMetadata(instant);
             return CheckpointUtils.getCheckpoint(commitMetadata).getCheckpointKey();
           } catch (HoodieException e) {
+            // No checkpoint found in this commit, skip to older instants
             return null;
           } catch (IOException e) {
             throw new HoodieIOException("Failed to read commit metadata for instant " + instant.requestedTime(), e);
           }
+          // Filter out null (from HoodieException) and empty strings (from commits
+          // that don't have checkpoint metadata, e.g. when rollover is not configured)
         }).filter(key -> !StringUtils.isNullOrEmpty(key)).findFirst()
         .orElseThrow(() -> new HoodieException("Unable to find checkpoint in source table at: "
             + path + ". This table may not have been created with checkpoint tracking enabled."));
