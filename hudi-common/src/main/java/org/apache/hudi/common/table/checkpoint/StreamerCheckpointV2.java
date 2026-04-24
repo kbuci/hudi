@@ -48,6 +48,13 @@ public class StreamerCheckpointV2 extends Checkpoint {
     this.checkpointIgnoreKey = commitMetadata.getMetadata(CHECKPOINT_IGNORE_KEY);
   }
 
+  public StreamerCheckpointV2(Map<String, String> metadata) {
+    Map<String, String> safeMetadata = metadata == null ? java.util.Collections.emptyMap() : metadata;
+    this.checkpointKey = safeMetadata.get(STREAMER_CHECKPOINT_KEY_V2);
+    this.checkpointResetKey = safeMetadata.get(STREAMER_CHECKPOINT_RESET_KEY_V2);
+    this.checkpointIgnoreKey = safeMetadata.get(CHECKPOINT_IGNORE_KEY);
+  }
+
   public void addV1Props() {
     this.extraProps.put(STREAMER_CHECKPOINT_KEY_V1, checkpointKey);
     this.extraProps.put(STREAMER_CHECKPOINT_RESET_KEY_V1, checkpointResetKey);

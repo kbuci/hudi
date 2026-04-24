@@ -326,49 +326,65 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
    * @param metadata Current commit metadata to be augmented with rolling metadata
    */
   protected void mergeRollingMetadata(HoodieTable table, HoodieCommitMetadata metadata) {
-    // Skip for metadata table - rolling metadata is only for data tables
+    // IMPORTANT: We're inside the lock here. The timeline in 'table' is either:
+    // 1. Fresh from createTable() if no conflict resolution happened
+    // 2. Reloaded during resolveWriteConflict() if conflicts were checked
+    // In both cases, we have the latest view of the timeline.
+
     if (table.isMetadataTable()) {
       return;
     }
 
     Set<String> rollingKeys = config.getRollingMetadataKeys();
     if (rollingKeys.isEmpty()) {
-      return;  // No rolling metadata configured
+      return;
     }
 
-    // IMPORTANT: We're inside the lock here. The timeline in 'table' is either:
-    // 1. Fresh from createTable() if no conflict resolution happened
-    // 2. Reloaded during resolveWriteConflict() if conflicts were checked
-    // In both cases, we have the latest view of the timeline.
+    Map<String, String> foundRollingMetadata =
+        findRollingMetadataFromTimeline(table, config, rollingKeys, metadata.getExtraMetadata());
+    for (Map.Entry<String, String> entry : foundRollingMetadata.entrySet()) {
+      metadata.addMetadata(entry.getKey(), entry.getValue());
+    }
+  }
+
+  /**
+   * Walks back the active commits timeline to find values for the given rolling metadata keys.
+   * Keys that already have non-empty values in {@code existingExtraMetadata} are skipped —
+   * empty strings are treated as "missing".
+   *
+   * @param table       HoodieTable with a valid active timeline
+   * @param config      HoodieWriteConfig with rolling metadata settings
+   * @param rollingKeys the set of keys to look for
+   * @param existingExtraMetadata existing metadata from the current commit
+   * @return a map of key to value for keys that were found in prior commits
+   */
+  public static Map<String, String> findRollingMetadataFromTimeline(
+      HoodieTable table, HoodieWriteConfig config,
+      Set<String> rollingKeys, Map<String, String> existingExtraMetadata) {
+
+    Map<String, String> foundRollingMetadata = new HashMap<>();
+    Set<String> remainingKeys = new HashSet<>(rollingKeys);
+
+    for (String key : rollingKeys) {
+      if (existingExtraMetadata.containsKey(key) && !StringUtils.isNullOrEmpty(existingExtraMetadata.get(key))) {
+        remainingKeys.remove(key);
+      }
+    }
+
+    if (remainingKeys.isEmpty()) {
+      log.debug("All rolling metadata keys are present in current commit. No walkback needed.");
+      return foundRollingMetadata;
+    }
 
     HoodieTimeline commitsTimeline = table.getActiveTimeline().getCommitsTimeline().filterCompletedInstants();
+    int lookbackLimit = config.getRollingMetadataTimelineLookbackCommits();
 
     if (commitsTimeline.empty()) {
       log.info("No previous commits found. Rolling metadata will start with current commit.");
-      return;  // First commit - nothing to roll forward
+      return foundRollingMetadata;
     }
 
     try {
-      Map<String, String> existingExtraMetadata = metadata.getExtraMetadata();
-      Map<String, String> foundRollingMetadata = new HashMap<>();
-      Set<String> remainingKeys = new HashSet<>(rollingKeys);
-
-      // Remove keys that are already present in current commit (current values take precedence)
-      for (String key : rollingKeys) {
-        if (existingExtraMetadata.containsKey(key)) {
-          remainingKeys.remove(key);
-        }
-      }
-
-      if (remainingKeys.isEmpty()) {
-        log.debug("All rolling metadata keys are present in current commit. No walkback needed.");
-        return;
-      }
-
-      int lookbackLimit = config.getRollingMetadataTimelineLookbackCommits();
-      int commitsWalkedBack = 0;
-
-      // Walk back through the timeline in reverse order (most recent first) to find values for all remaining keys
       List<HoodieInstant> recentCommits = commitsTimeline.getReverseOrderedInstantsByCompletionTime()
           .limit(lookbackLimit)
           .collect(Collectors.toList());
@@ -376,18 +392,18 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
       log.debug("Walking back up to {} commits to find rolling metadata for keys: {}",
           lookbackLimit, remainingKeys);
 
+      int commitsWalkedBack = 0;
       for (HoodieInstant instant : recentCommits) {
         if (remainingKeys.isEmpty()) {
-          break;  // Found all keys
+          break;
         }
-
         commitsWalkedBack++;
-        HoodieCommitMetadata commitMetadata = table.getMetaClient().getActiveTimeline().readInstantContent(instant, HoodieCommitMetadata.class);
+        HoodieCommitMetadata commitMetadata = table.getMetaClient().getActiveTimeline()
+            .readInstantContent(instant, HoodieCommitMetadata.class);
 
-        // Check for remaining keys in this commit
         for (String key : new HashSet<>(remainingKeys)) {
           String value = commitMetadata.getMetadata(key);
-          if (value != null) {
+          if (!StringUtils.isNullOrEmpty(value)) {
             foundRollingMetadata.put(key, value);
             remainingKeys.remove(key);
             log.debug("Found rolling metadata key '{}' in commit {} with value: {}",
@@ -396,28 +412,24 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
         }
       }
 
-      // Add found rolling metadata to current commit
-      for (Map.Entry<String, String> entry : foundRollingMetadata.entrySet()) {
-        metadata.addMetadata(entry.getKey(), entry.getValue());
-      }
-
       int rolledForwardCount = foundRollingMetadata.size();
       int updatedCount = rollingKeys.size() - remainingKeys.size() - rolledForwardCount;
 
       if (rolledForwardCount > 0 || updatedCount > 0 || !remainingKeys.isEmpty()) {
-        log.info("Rolling metadata merge completed. Walked back {} commits. "
-                + "Rolled forward: {}, Updated in current: {}, Not found: {}, Total rolling keys: {}",
+        log.info("Rolling metadata: walked back {} commits. "
+                + "Rolled forward: {}, Already present: {}, Not found: {}, Total rolling keys: {}",
             commitsWalkedBack, rolledForwardCount, updatedCount, remainingKeys.size(), rollingKeys.size());
       }
 
       if (!remainingKeys.isEmpty()) {
         log.warn("Rolling metadata keys not found in last {} commits: {}. "
-            + "These keys will not be included in the current commit.", lookbackLimit, remainingKeys);
+            + "These keys will not be included in the current commit.", commitsWalkedBack, remainingKeys);
       }
-
     } catch (IOException e) {
       log.error("Failed to read previous commit metadata for rolling metadata keys: {}.", rollingKeys, e);
       throw new HoodieIOException("Failed to read previous commit metadata for rolling metadata keys: " + rollingKeys, e);
     }
+
+    return foundRollingMetadata;
   }
 }

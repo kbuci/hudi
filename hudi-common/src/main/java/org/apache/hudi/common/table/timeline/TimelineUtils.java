@@ -233,24 +233,30 @@ public class TimelineUtils {
   }
 
   /**
-   * Get extra metadata for specified key from latest commit/deltacommit/replacecommit(eg. insert_overwrite) instant.
+   * Get extra metadata for specified key from the most recent commit/deltacommit/replacecommit
+   * (excluding clustering) that actually contains the key. Scans backwards through the timeline
+   * so that if the latest commit doesn't carry the key, older commits are still checked.
    */
   public static Option<String> getExtraMetadataFromLatest(HoodieTableMetaClient metaClient, String extraMetadataKey) {
     return metaClient.getCommitsTimeline().filterCompletedInstants().getReverseOrderedInstants()
-        // exclude clustering commits for returning user stored extra metadata 
         .filter(instant -> !isClusteringCommit(metaClient, instant))
-        .findFirst().map(instant ->
-            getMetadataValue(metaClient, extraMetadataKey, instant)).orElse(Option.empty());
+        .map(instant -> getMetadataValue(metaClient, extraMetadataKey, instant))
+        .filter(Option::isPresent)
+        .findFirst()
+        .orElse(Option.empty());
   }
 
   /**
-   * Get extra metadata for specified key from latest commit/deltacommit/replacecommit instant including internal commits
-   * such as clustering.
+   * Get extra metadata for specified key from the most recent commit/deltacommit/replacecommit
+   * instant (including clustering) that actually contains the key. Scans backwards through the
+   * timeline so that if the latest commit doesn't carry the key, older commits are still checked.
    */
   public static Option<String> getExtraMetadataFromLatestIncludeClustering(HoodieTableMetaClient metaClient, String extraMetadataKey) {
     return metaClient.getCommitsTimeline().filterCompletedInstants().getReverseOrderedInstants()
-        .findFirst().map(instant ->
-            getMetadataValue(metaClient, extraMetadataKey, instant)).orElse(Option.empty());
+        .map(instant -> getMetadataValue(metaClient, extraMetadataKey, instant))
+        .filter(Option::isPresent)
+        .findFirst()
+        .orElse(Option.empty());
   }
 
   /**

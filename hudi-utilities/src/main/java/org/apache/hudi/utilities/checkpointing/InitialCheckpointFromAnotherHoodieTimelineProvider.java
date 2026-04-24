@@ -23,6 +23,7 @@ import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.checkpoint.CheckpointUtils;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.hadoop.fs.HadoopFSUtils;
 
 import org.apache.hadoop.conf.Configuration;
@@ -52,18 +53,20 @@ public class InitialCheckpointFromAnotherHoodieTimelineProvider extends InitialC
 
   @Override
   public String getCheckpoint() throws HoodieException {
-    return anotherDsHoodieMetaClient.getCommitsTimeline().filterCompletedInstants().getReverseOrderedInstants()
+    // Use getWriteTimeline() to include compaction/logcompaction in addition to
+    // commit/deltacommit/replacecommit, so checkpoint metadata rolled into any
+    // non-ingestion commit type is discoverable after archival.
+    return anotherDsHoodieMetaClient.getActiveTimeline().getWriteTimeline()
+        .filterCompletedInstants().getReverseOrderedInstants()
         .map(instant -> {
           try {
             HoodieCommitMetadata commitMetadata =
                 anotherDsHoodieMetaClient.getActiveTimeline().readCommitMetadata(instant);
-            // Use CheckpointUtils to handle both V1 and V2 checkpoint keys
             return CheckpointUtils.getCheckpoint(commitMetadata).getCheckpointKey();
           } catch (HoodieException e) {
-            // No checkpoint found in this commit
             return null;
           } catch (IOException e) {
-            return null;
+            throw new HoodieIOException("Failed to read commit metadata for instant " + instant.requestedTime(), e);
           }
         }).filter(Objects::nonNull).findFirst()
         .orElseThrow(() -> new HoodieException("Unable to find checkpoint in source table at: "
