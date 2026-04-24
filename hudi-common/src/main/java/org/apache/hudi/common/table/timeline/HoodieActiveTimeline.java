@@ -152,12 +152,13 @@ public interface HoodieActiveTimeline extends HoodieTimeline {
   Option<Pair<HoodieInstant, HoodieCommitMetadata>> getLastCommitMetadataWithValidSchema();
 
   /**
-   * Returns most recent instant having a non-empty schema in its {@link HoodieCommitMetadata},
-   * regardless of {@link WriteOperationType}. This includes clustering, compaction, delete_partition,
-   * and any other commit type that may carry a schema in its metadata.
-   * Used as a fallback when no schema-evolving commits are found.
+   * Returns most recent instant having valid schema in its {@link HoodieCommitMetadata}.
+   *
+   * @param filterByCanUpdateSchema if true, only considers commits where
+   *        {@link WriteOperationType#canUpdateSchema} is true (original behavior).
+   *        If false, considers any commit type with a non-empty schema.
    */
-  Option<Pair<HoodieInstant, HoodieCommitMetadata>> getLastCommitMetadataWithSchema();
+  Option<Pair<HoodieInstant, HoodieCommitMetadata>> getLastCommitMetadataWithValidSchema(boolean filterByCanUpdateSchema);
 
   /**
    * Get the last instant with valid data, and convert this to HoodieCommitMetadata

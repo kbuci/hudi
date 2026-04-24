@@ -678,15 +678,15 @@ class TestTimelineUtils extends HoodieCommonTestHarness {
 
     metaClient.reloadActiveTimeline();
 
-    // getLastCommitMetadataWithValidSchema should NOT find it (filtered by canUpdateSchema)
+    // getLastCommitMetadataWithValidSchema() should NOT find it (filtered by canUpdateSchema)
     assertFalse(metaClient.getActiveTimeline().getLastCommitMetadataWithValidSchema().isPresent(),
         "canUpdateSchema filter should exclude clustering");
 
-    // getLastCommitMetadataWithSchema SHOULD find it (no operation type filter)
-    assertTrue(metaClient.getActiveTimeline().getLastCommitMetadataWithSchema().isPresent(),
-        "getLastCommitMetadataWithSchema should find schema in clustering commit");
+    // getLastCommitMetadataWithValidSchema(false) SHOULD find it (no operation type filter)
+    assertTrue(metaClient.getActiveTimeline().getLastCommitMetadataWithValidSchema(false).isPresent(),
+        "getLastCommitMetadataWithValidSchema(false) should find schema in clustering commit");
     assertEquals(schemaStr,
-        metaClient.getActiveTimeline().getLastCommitMetadataWithSchema().get().getRight()
+        metaClient.getActiveTimeline().getLastCommitMetadataWithValidSchema(false).get().getRight()
             .getMetadata(HoodieCommitMetadata.SCHEMA_KEY));
   }
 
@@ -701,7 +701,7 @@ class TestTimelineUtils extends HoodieCommonTestHarness {
 
     metaClient.reloadActiveTimeline();
 
-    assertFalse(metaClient.getActiveTimeline().getLastCommitMetadataWithSchema().isPresent(),
+    assertFalse(metaClient.getActiveTimeline().getLastCommitMetadataWithValidSchema(false).isPresent(),
         "Should return empty when no commits have schema");
   }
 
