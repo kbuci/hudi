@@ -18,6 +18,7 @@
 
 package org.apache.hudi.client.functional;
 
+import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.avro.model.HoodieClusteringPlan;
 import org.apache.hudi.avro.model.HoodieRequestedReplaceMetadata;
 import org.apache.hudi.client.BaseHoodieWriteClient;
@@ -2064,6 +2065,59 @@ public class TestHoodieClientOnCopyOnWriteStorage extends HoodieClientTestBase {
     TableSchemaResolver resolver = new TableSchemaResolver(freshMeta);
     assertTrue(resolver.getTableSchemaIfPresent(false).isPresent(),
         "TableSchemaResolver should find schema even with clustering-only timeline");
+  }
+
+  @Test
+  public void testRollingMetadataPreservedInCleanCommits() throws Exception {
+    String schemaKey = HoodieCommitMetadata.SCHEMA_KEY;
+    dataGen = new HoodieTestDataGenerator(new String[] {DEFAULT_FIRST_PARTITION_PATH});
+
+    HoodieWriteConfig config = getConfigBuilder(TRIP_EXAMPLE_SCHEMA)
+        .withCompactionConfig(HoodieCompactionConfig.newBuilder()
+            .compactionSmallFileSize(0).build())
+        .withRollingMetadataKeys(schemaKey)
+        .withCleanConfig(HoodieCleanConfig.newBuilder()
+            .withAutoClean(false)
+            .withFailedWritesCleaningPolicy(HoodieFailedWritesCleaningPolicy.LAZY)
+            .retainCommits(1)
+            .build())
+        .withArchivalConfig(HoodieArchivalConfig.newBuilder()
+            .archiveCommitsWith(10, 12).build())
+        .build();
+
+    SparkRDDWriteClient client = getHoodieWriteClient(config);
+
+    String firstCommit = client.startCommit();
+    List<HoodieRecord> records = dataGen.generateInserts(firstCommit, 100);
+    JavaRDD<WriteStatus> firstResult = client.insert(jsc.parallelize(records, 1), firstCommit);
+    client.commit(firstCommit, firstResult);
+
+    // Upsert several times to create superseded file versions
+    for (int i = 0; i < 4; i++) {
+      String commitTime = client.startCommit();
+      List<HoodieRecord> updates = dataGen.generateUpdates(commitTime, records);
+      JavaRDD<WriteStatus> result = client.upsert(jsc.parallelize(updates, 1), commitTime);
+      client.commit(commitTime, result);
+    }
+
+    // Run clean — retainCommits(1) means old file versions from earlier commits are eligible
+    HoodieCleanMetadata cleanResult = client.clean();
+    assertTrue(cleanResult != null, "Clean should produce metadata (files to clean exist)");
+
+    HoodieTableMetaClient freshMeta = HoodieTableMetaClient.reload(metaClient);
+    HoodieTimeline cleanTimeline = freshMeta.getActiveTimeline()
+        .getCleanerTimeline().filterCompletedInstants();
+    assertFalse(cleanTimeline.empty(), "Should have at least one clean instant");
+
+    HoodieInstant lastClean = cleanTimeline.lastInstant().get();
+    HoodieCleanMetadata cleanMetadata = cleanTimeline.readCleanMetadata(lastClean);
+
+    Map<String, String> cleanExtraMetadata = cleanMetadata.getExtraMetadata();
+    assertTrue(cleanExtraMetadata != null, "Clean metadata should have extraMetadata map");
+    assertTrue(cleanExtraMetadata.containsKey(schemaKey),
+        "Clean's extraMetadata should contain rolled-over schema key");
+    assertFalse(cleanExtraMetadata.get(schemaKey).isEmpty(),
+        "Rolled-over schema in clean should be non-empty");
   }
 
   /**
