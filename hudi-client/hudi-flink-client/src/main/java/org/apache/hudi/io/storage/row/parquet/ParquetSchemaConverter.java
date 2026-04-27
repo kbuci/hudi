@@ -363,14 +363,16 @@ public class ParquetSchemaConverter {
    */
   private static Type convertVariantToParquetType(
       String name, HoodieSchema variantSchema, Type.Repetition repetition) {
-    boolean isShredded = variantSchema instanceof HoodieSchema.Variant
-        && ((HoodieSchema.Variant) variantSchema).isShredded();
-    Type.Repetition valueRepetition = isShredded ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED;
+    if (variantSchema instanceof HoodieSchema.Variant
+        && ((HoodieSchema.Variant) variantSchema).isShredded()) {
+      throw new UnsupportedOperationException(
+          "Shredded Variant is not yet supported in Flink. Use unshredded Variant instead.");
+    }
     // TODO: add .as(LogicalTypeAnnotation.variantType()) once parquet-java is bumped to 1.16.0
     return Types.buildGroup(repetition)
         .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY, Type.Repetition.REQUIRED)
             .named(HoodieSchema.Variant.VARIANT_METADATA_FIELD))
-        .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY, valueRepetition)
+        .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY, Type.Repetition.REQUIRED)
             .named(HoodieSchema.Variant.VARIANT_VALUE_FIELD))
         .named(name);
   }
