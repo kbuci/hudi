@@ -678,6 +678,16 @@ public class TestHoodieSchemaConverter {
   }
 
   @Test
+  public void testShreddedVariantConversionThrows() {
+    HoodieSchema.Variant shredded = HoodieSchema.createVariantShredded(
+        HoodieSchema.create(HoodieSchemaType.STRING));
+    UnsupportedOperationException ex = assertThrows(
+        UnsupportedOperationException.class,
+        () -> HoodieSchemaConverter.convertToDataType(shredded));
+    assertTrue(ex.getMessage().contains("Shredded Variant is not yet supported in Flink"));
+  }
+
+  @Test
   public void testBlobStructureValidation() {
     // Positive case: Create ROW matching BLOB structure
     DataType blobLikeRow = DataTypes.ROW(
