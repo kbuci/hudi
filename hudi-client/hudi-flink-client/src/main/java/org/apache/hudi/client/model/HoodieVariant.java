@@ -20,20 +20,22 @@ package org.apache.hudi.client.model;
 
 import org.apache.flink.types.variant.Variant;
 
+import java.lang.reflect.Constructor;
 import java.util.Arrays;
 
 /**
- * Concrete implementation of Flink's {@link Variant} interface that holds
- * the raw metadata and value byte arrays from Hudi's internal Variant representation
- * ({@code ROW<metadata BYTES, value BYTES>}).
+ * Container for the raw metadata and value byte arrays from Hudi's internal Variant
+ * representation ({@code ROW<metadata BYTES, value BYTES>}).
  *
- * <p>This bridges Hudi's ROW-based Variant storage with Flink's Variant API,
- * allowing {@code RowData.getVariant()} to return a concrete object instead
- * of throwing {@code UnsupportedOperationException}.</p>
+ * <p>This class does NOT implement {@link Variant} directly because the Flink 2.1+ Variant
+ * interface declares many abstract methods (toJson, getBoolean, etc.) backed by Flink's
+ * binary decoding utilities that are unavailable in older Flink versions. Instead, call
+ * {@link #toFlinkVariant()} to obtain a fully functional {@code BinaryVariant} (Flink 2.1+)
+ * that implements all Variant methods.</p>
  */
-public class HoodieVariant implements Variant {
+public class HoodieVariant {
 
-  private static final long serialVersionUID = 1L;
+  private static volatile Constructor<?> binaryVariantCtor;
 
   private final byte[] metadata;
   private final byte[] value;
@@ -49,6 +51,26 @@ public class HoodieVariant implements Variant {
 
   public byte[] getValue() {
     return value;
+  }
+
+  /**
+   * Creates a Flink {@link Variant} backed by {@code BinaryVariant} (Flink 2.1+).
+   * Falls back to an error on older Flink versions where BinaryVariant does not exist.
+   * Note: BinaryVariant constructor order is (value, metadata).
+   */
+  public Variant toFlinkVariant() {
+    try {
+      if (binaryVariantCtor == null) {
+        binaryVariantCtor = Class.forName("org.apache.flink.types.variant.BinaryVariant")
+            .getConstructor(byte[].class, byte[].class);
+      }
+      return (Variant) binaryVariantCtor.newInstance(value, metadata);
+    } catch (ClassNotFoundException e) {
+      throw new UnsupportedOperationException(
+          "Full Variant API requires Flink 2.1+. Access raw bytes via getMetadata()/getValue().", e);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to create BinaryVariant from HoodieVariant", e);
+    }
   }
 
   @Override
