@@ -50,8 +50,8 @@ public class RowDataParquetWriteSupport extends WriteSupport<RowData> {
   /**
    * @param rowType      the Flink RowType describing the record structure
    * @param config       Hadoop configuration
-   * @param hoodieSchema HoodieSchema for Variant-aware Parquet schema generation;
-   *                     when present, Variant columns emit the canonical Parquet layout
+   * @param hoodieSchema HoodieSchema for precise Parquet schema generation;
+   *                     when present, enables type-accurate conversion (e.g. Variant, logical types)
    */
   public RowDataParquetWriteSupport(RowType rowType, Configuration config, Option<HoodieSchema> hoodieSchema) {
     super();

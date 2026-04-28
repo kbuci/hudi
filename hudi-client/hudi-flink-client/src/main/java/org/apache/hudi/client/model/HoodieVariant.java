@@ -101,6 +101,9 @@ public class HoodieVariant {
   /**
    * Extracts a HoodieVariant from a RowData that represents a Variant
    * as {@code ROW<metadata BYTES, value BYTES>}.
+   *
+   * <p>Variant is stored as a struct with two binary fields: metadata and value.
+   * Field order follows the Parquet spec and Iceberg convention (metadata first, value second).</p>
    */
   public static HoodieVariant fromRowData(org.apache.flink.table.data.RowData variantRow) {
     byte[] metadata = variantRow.isNullAt(0) ? null : variantRow.getBinary(0);
