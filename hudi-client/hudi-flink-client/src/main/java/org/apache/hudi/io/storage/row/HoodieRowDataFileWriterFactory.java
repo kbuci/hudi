@@ -73,17 +73,15 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
     final RowType rowType = (RowType) RowDataQueryContexts.fromSchema(schema).getRowType().getLogicalType();
     Configuration conf = storage.getConf().unwrapAs(Configuration.class);
     Option<HoodieSchema> hoodieSchema = Option.of(schema);
-    // Try constructing the user-configured write support class with the 4-arg constructor
-    // (Configuration, RowType, BloomFilter, Option<HoodieSchema>) first. If the class doesn't
-    // define that constructor (e.g. a custom subclass), fall back to the 3-arg constructor.
     String writeSupportClass = config.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS);
     HoodieRowDataParquetWriteSupport writeSupport;
-    try {
+    if (ReflectionUtils.hasConstructor(writeSupportClass,
+        new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class, Option.class})) {
       writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
           writeSupportClass,
           new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class, Option.class},
           conf, rowType, null, hoodieSchema);
-    } catch (Exception e) {
+    } else {
       writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
           writeSupportClass,
           new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
@@ -155,23 +153,14 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
 
     Configuration conf = (Configuration) storageConfiguration.unwrapAs(Configuration.class);
     BloomFilter filter = createBloomFilter(hoodieConfig);
-    // Try constructing the user-configured write support class with the 4-arg constructor
-    // (Configuration, RowType, BloomFilter, Option<HoodieSchema>) first. If the class doesn't
-    // define that constructor (e.g. a custom subclass), fall back to the 3-arg constructor.
     String writeSupportClass = hoodieConfig.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS);
     HoodieRowDataParquetWriteSupport writeSupport;
-    if (hoodieSchema.isPresent()) {
-      try {
-        writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
-            writeSupportClass,
-            new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class, Option.class},
-            conf, rowType, filter, hoodieSchema);
-      } catch (Exception e) {
-        writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
-            writeSupportClass,
-            new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
-            conf, rowType, filter);
-      }
+    if (hoodieSchema.isPresent() && ReflectionUtils.hasConstructor(writeSupportClass,
+        new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class, Option.class})) {
+      writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
+          writeSupportClass,
+          new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class, Option.class},
+          conf, rowType, filter, hoodieSchema);
     } else {
       writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
           writeSupportClass,

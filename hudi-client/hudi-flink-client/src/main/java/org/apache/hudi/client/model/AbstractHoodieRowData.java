@@ -169,6 +169,9 @@ public abstract class AbstractHoodieRowData implements RowData {
   protected abstract int rebaseOrdinal(int ordinal);
 
   public Variant getVariant(int ordinal) {
+    if (row.isNullAt(rebaseOrdinal(ordinal))) {
+      return null;
+    }
     RowData variantRow = row.getRow(rebaseOrdinal(ordinal), 2);
     return HoodieVariant.fromRowData(variantRow).toFlinkVariant();
   }

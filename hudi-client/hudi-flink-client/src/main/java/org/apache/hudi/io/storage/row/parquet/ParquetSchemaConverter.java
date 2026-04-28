@@ -208,7 +208,7 @@ public class ParquetSchemaConverter {
       String fieldName = rowType.getFieldNames().get(i);
       LogicalType fieldType = rowType.getTypeAt(i);
       Type.Repetition repetition = fieldType.isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED;
-      HoodieSchema fieldSchema = resolveFieldSchema(hoodieFields, i, fieldName);
+      HoodieSchema fieldSchema = resolveFieldSchema(hoodieFields, i);
       types[i] = convertToParquetType(fieldName, fieldType, repetition, fieldSchema);
     }
     return new MessageType(name, types);
@@ -337,7 +337,7 @@ public class ParquetSchemaConverter {
         Types.GroupBuilder<GroupType> builder = Types.buildGroup(repetition);
         for (int i = 0; i < rowType.getFieldCount(); i++) {
           RowType.RowField field = rowType.getFields().get(i);
-          HoodieSchema nestedFieldSchema = resolveFieldSchema(nestedFields, i, field.getName());
+          HoodieSchema nestedFieldSchema = resolveFieldSchema(nestedFields, i);
           builder.addField(convertToParquetType(
               field.getName(), field.getType(),
               field.getType().isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED,
@@ -418,7 +418,7 @@ public class ParquetSchemaConverter {
    * Resolves the HoodieSchema for a field at the given index, unwrapping nullable unions.
    * Returns null if the field list is null or the index is out of bounds.
    */
-  private static HoodieSchema resolveFieldSchema(List<HoodieSchemaField> fields, int index, String fieldName) {
+  private static HoodieSchema resolveFieldSchema(List<HoodieSchemaField> fields, int index) {
     if (fields == null || index >= fields.size()) {
       return null;
     }

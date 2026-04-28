@@ -18,6 +18,7 @@
 
 package org.apache.hudi.client.model;
 
+import org.apache.flink.table.data.RowData;
 import org.apache.flink.types.variant.Variant;
 
 import java.lang.reflect.Constructor;
@@ -105,7 +106,7 @@ public class HoodieVariant {
    * <p>Variant is stored as a struct with two binary fields: metadata and value.
    * Field order follows the Parquet spec and Iceberg convention (metadata first, value second).</p>
    */
-  public static HoodieVariant fromRowData(org.apache.flink.table.data.RowData variantRow) {
+  public static HoodieVariant fromRowData(RowData variantRow) {
     byte[] metadata = variantRow.isNullAt(0) ? null : variantRow.getBinary(0);
     byte[] value = variantRow.isNullAt(1) ? null : variantRow.getBinary(1);
     return new HoodieVariant(metadata, value);

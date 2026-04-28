@@ -554,7 +554,34 @@ public class HoodieSchemaConverter {
 
   /**
    * Converts a Variant schema to Flink's ROW type.
-   * Variant is represented as ROW<`metadata` BYTES, `value` BYTES> in Flink.
+   * Variant is represented as ROW&lt;metadata BYTES, value BYTES&gt; in Flink.
+   *
+   * <h3>Why ROW instead of VariantType (pre-2.1 Flink compatibility)</h3>
+   *
+   * <p>Flink 2.1 introduced {@code VariantType} as a first-class {@code LogicalTypeRoot.VARIANT},
+   * but this module compiles against Flink 1.20 where that type does not exist. For Flink versions
+   * prior to 2.1 there is no way to represent Variant semantics within Flink's type system:
+   *
+   * <ul>
+   *   <li>{@code RowType} is structurally typed — {@code ROW<metadata BYTES, value BYTES>} is
+   *       indistinguishable from any other two-field binary row. There is no metadata slot,
+   *       annotation mechanism, or tag field on {@code LogicalType}.</li>
+   *   <li>{@code DistinctType} could theoretically wrap a ROW with a "variant" identity, but it
+   *       is documented as "currently not fully supported in the planner" and requires catalog
+   *       registration.</li>
+   *   <li>{@code RawType<HoodieVariant>} would carry the semantic meaning but bypasses Flink's
+   *       native row-level field access and binary operations.</li>
+   * </ul>
+   *
+   * <p>Because Flink's type system cannot express Variant prior to 2.1, we represent it as a
+   * plain ROW here and rely on HoodieSchema threading through the conversion pipeline
+   * ({@link RowDataToAvroConverters}, {@code RowDataParquetWriteSupport}, etc.) to preserve
+   * the knowledge that a given ROW is actually a Variant. The converters in turn check
+   * {@code HoodieSchema.getType() == VARIANT} to generate the correct Avro/Parquet output.
+   *
+   * <p>On Flink 2.1+, the converters additionally detect {@code LogicalTypeRoot.VARIANT} at
+   * runtime (by name, to avoid compile-time dependency) and handle native {@code Variant}
+   * objects directly, making HoodieSchema threading optional for that code path.
    *
    * @param schema HoodieSchema to convert (must be a VARIANT type)
    * @return DataType representing the Variant as a ROW with binary fields
