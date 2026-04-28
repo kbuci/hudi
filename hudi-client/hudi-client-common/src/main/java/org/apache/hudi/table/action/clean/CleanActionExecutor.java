@@ -216,7 +216,6 @@ public class CleanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K,
       }
 
       List<HoodieCleanStat> cleanStats = clean(context, cleanerPlan);
-      table.getMetaClient().reloadActiveTimeline();
       HoodieCleanMetadata metadata;
       if (cleanStats.isEmpty()) {
         metadata = createEmptyCleanMetadata(cleanerPlan, inflightInstant, timer.endTimer());
@@ -229,8 +228,9 @@ public class CleanActionExecutor<T, I, K, O> extends BaseActionExecutor<T, I, K,
         );
       }
       this.txnManager.beginStateChange(Option.of(inflightInstant), Option.empty());
-      // Merge rolling metadata inside the state-change lock so we read the latest timeline,
+      // Reload inside the lock so mergeRollingMetadata reads the latest timeline,
       // matching the same contract as mergeRollingMetadata for commit metadata.
+      table.getMetaClient().reloadActiveTimeline();
       BaseHoodieClient.mergeRollingMetadata(table, config, metadata);
       writeTableMetadata(metadata, inflightInstant.requestedTime());
       table.getActiveTimeline().transitionCleanInflightToComplete(

@@ -343,8 +343,8 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
       return;  // No rolling metadata configured
     }
 
-    Map<String, String> found = walkTimelineForRollingKeys(table, config, rollingKeys, metadata.getExtraMetadata());
-    for (Map.Entry<String, String> entry : found.entrySet()) {
+    Map<String, String> foundRollingMetadata = parseTimelineForRollingMetadata(table, config, rollingKeys, metadata.getExtraMetadata());
+    for (Map.Entry<String, String> entry : foundRollingMetadata.entrySet()) {
       metadata.addMetadata(entry.getKey(), entry.getValue());
     }
   }
@@ -368,10 +368,10 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
 
     Map<String, String> existing = metadata.getExtraMetadata() != null
         ? metadata.getExtraMetadata() : Collections.emptyMap();
-    Map<String, String> found = walkTimelineForRollingKeys(table, config, rollingKeys, existing);
-    if (!found.isEmpty()) {
+    Map<String, String> foundRollingMetadata = parseTimelineForRollingMetadata(table, config, rollingKeys, existing);
+    if (!foundRollingMetadata.isEmpty()) {
       Map<String, String> merged = new HashMap<>(existing);
-      merged.putAll(found);
+      merged.putAll(foundRollingMetadata);
       metadata.setExtraMetadata(merged);
     }
   }
@@ -385,11 +385,11 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
    * <p>Keys already present with a non-empty value in {@code existingExtra} are skipped (empty
    * strings are treated as "missing").
    */
-  private static Map<String, String> walkTimelineForRollingKeys(
+  private static Map<String, String> parseTimelineForRollingMetadata(
       HoodieTable table, HoodieWriteConfig config,
       Set<String> rollingKeys, Map<String, String> existingExtra) {
 
-    Map<String, String> found = new HashMap<>();
+    Map<String, String> foundRollingMetadata = new HashMap<>();
     Set<String> remaining = new HashSet<>(rollingKeys);
 
     for (String key : rollingKeys) {
@@ -399,7 +399,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
     }
     if (remaining.isEmpty()) {
       log.debug("All rolling metadata keys already present. No walkback needed.");
-      return found;
+      return foundRollingMetadata;
     }
 
     int lookbackLimit = config.getRollingMetadataTimelineLookbackCommits();
@@ -409,7 +409,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
         .collect(Collectors.toList());
 
     log.debug("Walking back up to {} instants to find rolling metadata for keys: {}", lookbackLimit, remaining);
-    int walked = 0;
+    int commitsWalkedBack = 0;
 
     try {
       for (HoodieInstant instant : instants) {
@@ -419,20 +419,19 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
         String action = instant.getAction();
         Map<String, String> extraMeta = null;
 
-        if (HoodieTimeline.COMMIT_ACTION.equals(action)
-            || HoodieTimeline.DELTA_COMMIT_ACTION.equals(action)
-            || HoodieTimeline.REPLACE_COMMIT_ACTION.equals(action)
-            || HoodieTimeline.CLUSTERING_ACTION.equals(action)) {
-          HoodieCommitMetadata commitMeta = table.getMetaClient().getActiveTimeline()
-              .readInstantContent(instant, HoodieCommitMetadata.class);
-          extraMeta = commitMeta.getExtraMetadata();
-        } else if (HoodieTimeline.CLEAN_ACTION.equals(action)) {
+        if (!HoodieTimeline.VALID_ACTIONS_FOR_ROLLING_METADATA.contains(action)) {
+          continue;
+        }
+
+        if (HoodieTimeline.CLEAN_ACTION.equals(action)) {
           HoodieCleanMetadata cleanMeta = table.getActiveTimeline().readCleanMetadata(instant);
           extraMeta = cleanMeta.getExtraMetadata();
         } else {
-          continue;
+          HoodieCommitMetadata commitMeta = table.getMetaClient().getActiveTimeline()
+              .readInstantContent(instant, HoodieCommitMetadata.class);
+          extraMeta = commitMeta.getExtraMetadata();
         }
-        walked++;
+        commitsWalkedBack++;
 
         if (extraMeta == null) {
           continue;
@@ -440,7 +439,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
         for (String key : new HashSet<>(remaining)) {
           String value = extraMeta.get(key);
           if (!StringUtils.isNullOrEmpty(value)) {
-            found.put(key, value);
+            foundRollingMetadata.put(key, value);
             remaining.remove(key);
             log.debug("Found rolling metadata key '{}' in {} instant {} with value: {}",
                 key, action, instant.requestedTime(), value);
@@ -448,18 +447,18 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
         }
       }
 
-      if (!found.isEmpty() || !remaining.isEmpty()) {
+      if (!foundRollingMetadata.isEmpty() || !remaining.isEmpty()) {
         log.info("Rolling metadata: walked {} instants. Rolled forward: {}, Not found: {}, Total keys: {}",
-            walked, found.size(), remaining.size(), rollingKeys.size());
+            commitsWalkedBack, foundRollingMetadata.size(), remaining.size(), rollingKeys.size());
       }
       if (!remaining.isEmpty()) {
-        log.warn("Rolling metadata keys not found in last {} instants: {}.", walked, remaining);
+        log.warn("Rolling metadata keys not found in last {} instants: {}.", commitsWalkedBack, remaining);
       }
     } catch (IOException e) {
       log.error("Failed to read previous metadata for rolling metadata keys: {}.", rollingKeys, e);
       throw new HoodieIOException("Failed to read previous metadata for rolling keys: " + rollingKeys, e);
     }
 
-    return found;
+    return foundRollingMetadata;
   }
 }
