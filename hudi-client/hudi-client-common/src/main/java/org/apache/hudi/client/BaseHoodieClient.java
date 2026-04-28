@@ -343,7 +343,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
       return;  // No rolling metadata configured
     }
 
-    Map<String, String> foundRollingMetadata = parseTimelineForRollingMetadata(table, config, rollingKeys, metadata.getExtraMetadata());
+    Map<String, String> foundRollingMetadata = collectRollingMetadataFromTimeline(table, config, rollingKeys, metadata.getExtraMetadata());
     for (Map.Entry<String, String> entry : foundRollingMetadata.entrySet()) {
       metadata.addMetadata(entry.getKey(), entry.getValue());
     }
@@ -368,7 +368,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
 
     Map<String, String> existing = metadata.getExtraMetadata() != null
         ? metadata.getExtraMetadata() : Collections.emptyMap();
-    Map<String, String> foundRollingMetadata = parseTimelineForRollingMetadata(table, config, rollingKeys, existing);
+    Map<String, String> foundRollingMetadata = collectRollingMetadataFromTimeline(table, config, rollingKeys, existing);
     if (!foundRollingMetadata.isEmpty()) {
       Map<String, String> merged = new HashMap<>(existing);
       merged.putAll(foundRollingMetadata);
@@ -385,7 +385,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
    * <p>Keys already present with a non-empty value in {@code existingExtra} are skipped (empty
    * strings are treated as "missing").
    */
-  private static Map<String, String> parseTimelineForRollingMetadata(
+  private static Map<String, String> collectRollingMetadataFromTimeline(
       HoodieTable table, HoodieWriteConfig config,
       Set<String> rollingKeys, Map<String, String> existingExtra) {
 
@@ -405,11 +405,12 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
     int lookbackLimit = config.getRollingMetadataTimelineLookbackCommits();
     HoodieTimeline completed = table.getActiveTimeline().filterCompletedInstants();
     List<HoodieInstant> instants = completed.getReverseOrderedInstantsByCompletionTime()
+        .filter(i -> HoodieTimeline.VALID_ACTIONS_FOR_ROLLING_METADATA.contains(i.getAction()))
         .limit(lookbackLimit)
         .collect(Collectors.toList());
 
     log.debug("Walking back up to {} instants to find rolling metadata for keys: {}", lookbackLimit, remaining);
-    int commitsWalkedBack = 0;
+    int instantsWalkedBack = 0;
 
     try {
       for (HoodieInstant instant : instants) {
@@ -419,10 +420,6 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
         String action = instant.getAction();
         Map<String, String> extraMeta = null;
 
-        if (!HoodieTimeline.VALID_ACTIONS_FOR_ROLLING_METADATA.contains(action)) {
-          continue;
-        }
-
         if (HoodieTimeline.CLEAN_ACTION.equals(action)) {
           HoodieCleanMetadata cleanMeta = table.getActiveTimeline().readCleanMetadata(instant);
           extraMeta = cleanMeta.getExtraMetadata();
@@ -431,7 +428,7 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
               .readInstantContent(instant, HoodieCommitMetadata.class);
           extraMeta = commitMeta.getExtraMetadata();
         }
-        commitsWalkedBack++;
+        instantsWalkedBack++;
 
         if (extraMeta == null) {
           continue;
@@ -449,10 +446,10 @@ public abstract class BaseHoodieClient implements Serializable, AutoCloseable {
 
       if (!foundRollingMetadata.isEmpty() || !remaining.isEmpty()) {
         log.info("Rolling metadata: walked {} instants. Rolled forward: {}, Not found: {}, Total keys: {}",
-            commitsWalkedBack, foundRollingMetadata.size(), remaining.size(), rollingKeys.size());
+            instantsWalkedBack, foundRollingMetadata.size(), remaining.size(), rollingKeys.size());
       }
       if (!remaining.isEmpty()) {
-        log.warn("Rolling metadata keys not found in last {} instants: {}.", commitsWalkedBack, remaining);
+        log.warn("Rolling metadata keys not found in last {} instants: {}.", instantsWalkedBack, remaining);
       }
     } catch (IOException e) {
       log.error("Failed to read previous metadata for rolling metadata keys: {}.", rollingKeys, e);
