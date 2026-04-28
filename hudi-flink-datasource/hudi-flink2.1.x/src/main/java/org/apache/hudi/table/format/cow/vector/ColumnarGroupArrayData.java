@@ -125,7 +125,9 @@ public class ColumnarGroupArrayData implements ArrayData {
   @Override
   public Variant getVariant(int index) {
     throw new UnsupportedOperationException(
-        "Variant is stored as ROW<metadata BYTES, value BYTES>. Use getRow(index, 2) to access the underlying fields.");
+        "Vectorized columnar reader does not yet support Variant natively. "
+            + "Variant is read via the non-vectorized path (AbstractHoodieRowData). "
+            + "Use getRow(index, 2) to access the underlying ROW<metadata BYTES, value BYTES> fields.");
   }
 
   @Override

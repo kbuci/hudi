@@ -155,8 +155,48 @@ public class AvroToRowDataConverters {
       case MULTISET:
         return createMapConverter(type, utcTimezone);
       default:
+        // Flink 2.1+ introduces VARIANT as a first-class LogicalTypeRoot. When present,
+        // we convert the Avro Variant record (metadata + value) into a Flink BinaryVariant
+        // via reflection, since the BinaryVariant class only exists in Flink 2.1+.
+        //
+        // For older Flink versions the VARIANT case never fires because HoodieSchemaConverter
+        // represents Variant as ROW<metadata BYTES, value BYTES>, which is handled by the
+        // ROW case above.
+        if ("VARIANT".equals(type.getTypeRoot().name())) {
+          return createVariantConverter();
+        }
         throw new UnsupportedOperationException("Unsupported type: " + type);
     }
+  }
+
+  /**
+   * Creates a converter for Flink 2.1+ VARIANT LogicalType. The converter receives an Avro
+   * GenericRecord carrying metadata/value binary fields and produces a Flink
+   * {@code BinaryVariant} via reflection.
+   *
+   * <p>Reflection is required because {@code BinaryVariant} only exists in Flink 2.1+,
+   * while this module compiles against Flink 1.20.
+   */
+  private static AvroToRowDataConverter createVariantConverter() {
+    return avroObject -> {
+      IndexedRecord record = (IndexedRecord) avroObject;
+      byte[] metadata = convertToBytes(record.get(0));
+      byte[] value = convertToBytes(record.get(1));
+
+      try {
+        Class<?> binaryVariantClass =
+            Class.forName("org.apache.flink.types.variant.BinaryVariant");
+        // BinaryVariant(byte[] value, byte[] metadata) — note: value first, metadata second
+        return binaryVariantClass
+            .getConstructor(byte[].class, byte[].class)
+            .newInstance(value, metadata);
+      } catch (ClassNotFoundException e) {
+        throw new UnsupportedOperationException(
+            "VARIANT LogicalType requires Flink 2.1+ (BinaryVariant class not found).", e);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to create Flink BinaryVariant via reflection.", e);
+      }
+    };
   }
 
   private static AvroToRowDataConverter createDecimalConverter(DecimalType decimalType) {

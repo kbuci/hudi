@@ -150,6 +150,9 @@ public class BootstrapRowData implements RowData {
   }
 
   public Variant getVariant(int pos) {
+    if (row.isNullAt(pos)) {
+      return null;
+    }
     RowData variantRow = row.getRow(pos, 2);
     return HoodieVariant.fromRowData(variantRow).toFlinkVariant();
   }

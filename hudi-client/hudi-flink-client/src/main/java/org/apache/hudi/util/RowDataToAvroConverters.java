@@ -239,6 +239,22 @@ public class RowDataToAvroConverters {
         break;
       case RAW:
       default:
+        // Flink 2.1+ introduces VARIANT as a first-class LogicalTypeRoot. When present,
+        // the runtime provides a Variant object (via RowData.getVariant()) from which we
+        // can extract raw metadata/value bytes directly — no HoodieSchema inspection is
+        // needed to distinguish Variant from a plain ROW.
+        //
+        // We detect it by name rather than by enum constant because hudi-flink-client is
+        // compiled against Flink 1.20 (where LogicalTypeRoot.VARIANT does not exist).
+        //
+        // For older Flink versions the Variant arrives as ROW<metadata BYTES, value BYTES>
+        // and the ROW case above handles conversion correctly because HoodieSchema carries
+        // the VARIANT type information that Flink's RowType cannot express (see
+        // convertVariant() in HoodieSchemaConverter).
+        if ("VARIANT".equals(type.getTypeRoot().name())) {
+          converter = createVariantConverter();
+          break;
+        }
         throw new UnsupportedOperationException("Unsupported type: " + type);
     }
 
@@ -269,6 +285,40 @@ public class RowDataToAvroConverters {
           actualSchema = schema;
         }
         return converter.convert(actualSchema, object);
+      }
+    };
+  }
+
+  /**
+   * Creates a converter for Flink 2.1+ VARIANT LogicalType. The converter receives a Flink
+   * {@code Variant} object at runtime and extracts the raw metadata/value byte arrays via
+   * reflection, then packs them into an Avro GenericRecord with the Variant schema.
+   *
+   * <p>Reflection is required because the {@code Variant} interface and {@code BinaryVariant}
+   * class only exist in Flink 2.1+, while this module compiles against Flink 1.20.
+   */
+  private static RowDataToAvroConverter createVariantConverter() {
+    return new RowDataToAvroConverter() {
+      private static final long serialVersionUID = 1L;
+
+      @Override
+      public Object convert(HoodieSchema schema, Object object) {
+        try {
+          java.lang.reflect.Method metadataMethod = object.getClass().getMethod("getMetadata");
+          java.lang.reflect.Method valueMethod = object.getClass().getMethod("getValue");
+          byte[] metadata = (byte[]) metadataMethod.invoke(object);
+          byte[] value = (byte[]) valueMethod.invoke(object);
+
+          final GenericRecord record = new GenericData.Record(schema.toAvroSchema());
+          record.put("metadata", ByteBuffer.wrap(metadata));
+          record.put("value", ByteBuffer.wrap(value));
+          return record;
+        } catch (Exception e) {
+          throw new RuntimeException(
+              "Failed to extract Variant fields via reflection. "
+                  + "VARIANT LogicalType requires Flink 2.1+.",
+              e);
+        }
       }
     };
   }
