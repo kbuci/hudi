@@ -71,9 +71,21 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
       HoodieConfig config,
       HoodieSchema schema) throws IOException {
     final RowType rowType = (RowType) RowDataQueryContexts.fromSchema(schema).getRowType().getLogicalType();
-    HoodieRowDataParquetWriteSupport writeSupport =
-        new HoodieRowDataParquetWriteSupport(
-            storage.getConf().unwrapAs(Configuration.class), rowType, null, Option.of(schema));
+    Configuration conf = storage.getConf().unwrapAs(Configuration.class);
+    Option<HoodieSchema> hoodieSchema = Option.of(schema);
+    String writeSupportClass = config.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS);
+    HoodieRowDataParquetWriteSupport writeSupport;
+    try {
+      writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
+          writeSupportClass,
+          new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class, Option.class},
+          conf, rowType, null, hoodieSchema);
+    } catch (Exception e) {
+      writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
+          writeSupportClass,
+          new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
+          conf, rowType, null);
+    }
     return new HoodieRowDataParquetOutputStreamWriter(
         new FSDataOutputStream(outputStream, null), writeSupport, getParquetConfig(config, writeSupport));
   }
@@ -121,7 +133,8 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
   }
 
   /**
-   * Create a parquet RowData writer on a given storage path with optional Variant-aware schema.
+   * Create a parquet RowData writer on a given storage path with optional HoodieSchema
+   * for precise type conversion (e.g. Variant, logical types).
    */
   public HoodieFileWriter newParquetFileWriter(
       String instantTime,
@@ -139,12 +152,23 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
 
     Configuration conf = (Configuration) storageConfiguration.unwrapAs(Configuration.class);
     BloomFilter filter = createBloomFilter(hoodieConfig);
+    String writeSupportClass = hoodieConfig.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS);
     HoodieRowDataParquetWriteSupport writeSupport;
     if (hoodieSchema.isPresent()) {
-      writeSupport = new HoodieRowDataParquetWriteSupport(conf, rowType, filter, hoodieSchema);
+      try {
+        writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
+            writeSupportClass,
+            new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class, Option.class},
+            conf, rowType, filter, hoodieSchema);
+      } catch (Exception e) {
+        writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
+            writeSupportClass,
+            new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
+            conf, rowType, filter);
+      }
     } else {
       writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
-          hoodieConfig.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS),
+          writeSupportClass,
           new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
           conf, rowType, filter);
     }

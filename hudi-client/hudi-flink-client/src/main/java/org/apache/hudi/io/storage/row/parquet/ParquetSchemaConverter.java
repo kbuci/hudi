@@ -198,7 +198,7 @@ public class ParquetSchemaConverter {
    *
    * @param name         the name of the Parquet message type
    * @param rowType      the Flink RowType
-   * @param hoodieSchema optional HoodieSchema for Variant-aware conversion; may be null
+   * @param hoodieSchema optional HoodieSchema for precise type conversion (e.g. Variant, logical types); may be null
    */
   public static MessageType convertToParquetMessageType(String name, RowType rowType, HoodieSchema hoodieSchema) {
     List<HoodieSchemaField> hoodieFields = (hoodieSchema != null && hoodieSchema.hasFields())
