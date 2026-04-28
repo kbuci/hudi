@@ -300,12 +300,16 @@ public class RowDataToAvroConverters {
   private static RowDataToAvroConverter createVariantConverter() {
     return new RowDataToAvroConverter() {
       private static final long serialVersionUID = 1L;
+      private transient java.lang.reflect.Method metadataMethod;
+      private transient java.lang.reflect.Method valueMethod;
 
       @Override
       public Object convert(HoodieSchema schema, Object object) {
         try {
-          java.lang.reflect.Method metadataMethod = object.getClass().getMethod("getMetadata");
-          java.lang.reflect.Method valueMethod = object.getClass().getMethod("getValue");
+          if (metadataMethod == null) {
+            metadataMethod = object.getClass().getMethod("getMetadata");
+            valueMethod = object.getClass().getMethod("getValue");
+          }
           byte[] metadata = (byte[]) metadataMethod.invoke(object);
           byte[] value = (byte[]) valueMethod.invoke(object);
 
