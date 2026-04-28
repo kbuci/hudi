@@ -124,10 +124,13 @@ public class ColumnarGroupArrayData implements ArrayData {
 
   @Override
   public Variant getVariant(int index) {
+    // Nested variant (variant inside a ROW or ARRAY) is not yet supported in the vectorized
+    // columnar reader. Top-level variant columns work via VectorizedColumnBatch.getVariant()
+    // which reads from a HeapRowColumnVector directly — this code path is only hit for nested
+    // structures (e.g., ARRAY<VARIANT>).
     throw new UnsupportedOperationException(
-        "Vectorized columnar reader does not yet support Variant natively. "
-            + "Variant is read via the non-vectorized path (AbstractHoodieRowData). "
-            + "Use getRow(index, 2) to access the underlying ROW<metadata BYTES, value BYTES> fields.");
+        "Nested Variant in the vectorized columnar reader is not yet supported. "
+            + "Top-level Variant columns are handled by VectorizedColumnBatch.getVariant().");
   }
 
   @Override
