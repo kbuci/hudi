@@ -26,7 +26,6 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 
 import org.apache.flink.table.api.DataTypes;
-import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Test;
