@@ -22,6 +22,7 @@ import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.util.HoodieSchemaConverter;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.flink.table.api.DataTypes;
@@ -159,10 +160,15 @@ public class ParquetSchemaConverter {
                 convertToRowField(keyValueType.getLeft()).getType().copy(true),
                 convertToRowField(keyValueType.getRight()).getType()));
       } else if (isVariantGroup(groupType)) {
-        dataType = DataTypes.ROW(
-            DataTypes.FIELD(HoodieSchema.Variant.VARIANT_METADATA_FIELD, DataTypes.BYTES().notNull()),
-            DataTypes.FIELD(HoodieSchema.Variant.VARIANT_VALUE_FIELD, DataTypes.BYTES().notNull())
-        ).notNull();
+        DataType variantDataType = HoodieSchemaConverter.tryCreateVariantDataType();
+        if (variantDataType != null) {
+          dataType = variantDataType.notNull();
+        } else {
+          dataType = DataTypes.ROW(
+              DataTypes.FIELD(HoodieSchema.Variant.VARIANT_METADATA_FIELD, DataTypes.BYTES().notNull()),
+              DataTypes.FIELD(HoodieSchema.Variant.VARIANT_VALUE_FIELD, DataTypes.BYTES().notNull())
+          ).notNull();
+        }
       } else {
         dataType =
             DataTypes.of(new RowType(
