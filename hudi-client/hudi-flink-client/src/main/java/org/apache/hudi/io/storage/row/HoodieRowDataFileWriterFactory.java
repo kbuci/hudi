@@ -19,127 +19,67 @@
 package org.apache.hudi.io.storage.row;
 
 import org.apache.hudi.common.bloom.BloomFilter;
-import org.apache.hudi.common.config.HoodieConfig;
-import org.apache.hudi.common.config.HoodieParquetConfig;
-import org.apache.hudi.common.engine.TaskContextSupplier;
-import org.apache.hudi.common.schema.HoodieSchema;
-import org.apache.hudi.common.table.HoodieTableConfig;
-import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.common.bloom.BloomFilterFactory;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.io.HoodieParquetConfigInjector;
-import org.apache.hudi.io.storage.HoodieFileWriter;
-import org.apache.hudi.io.storage.HoodieFileWriterFactory;
-import org.apache.hudi.storage.HoodieStorage;
-import org.apache.hudi.storage.StorageConfiguration;
-import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.io.storage.HoodieParquetConfig;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
-import org.apache.hudi.util.RowDataQueryContexts;
+import org.apache.hudi.table.HoodieTable;
 
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
-import java.io.OutputStream;
 
+import static org.apache.hudi.common.model.HoodieFileFormat.PARQUET;
 import static org.apache.hudi.common.util.ParquetUtils.getCompressionCodecName;
+import static org.apache.hudi.hadoop.fs.HadoopFSUtils.convertToStoragePath;
 
 /**
  * Factory to assist in instantiating a new {@link HoodieRowDataFileWriter}.
  */
-public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
-
-  public HoodieRowDataFileWriterFactory(HoodieStorage storage) {
-    super(storage);
-  }
+public class HoodieRowDataFileWriterFactory {
 
   /**
-   * Create a parquet writer on a given OutputStream.
+   * Factory method to assist in instantiating an instance of {@link HoodieRowDataFileWriter}.
    *
-   * @param outputStream outputStream where parquet bytes will be written into
-   * @param config       hoodie config
-   * @param schema       write schema
-   *
-   * @return an HoodieFileWriter for writing hoodie records.
+   * @param path        path of the RowFileWriter.
+   * @param hoodieTable instance of {@link HoodieTable} in use.
+   * @param config      instance of {@link HoodieWriteConfig} to use.
+   * @param schema      schema of the dataset in use.
+   * @return the instantiated {@link HoodieRowDataFileWriter}.
+   * @throws IOException if format is not supported or if any exception during instantiating the RowFileWriter.
    */
-  @Override
-  protected HoodieFileWriter newParquetFileWriter(
-      OutputStream outputStream,
-      HoodieConfig config,
-      HoodieSchema schema) throws IOException {
-    final RowType rowType = (RowType) RowDataQueryContexts.fromSchema(schema).getRowType().getLogicalType();
-    Configuration conf = storage.getConf().unwrapAs(Configuration.class);
+  public static HoodieRowDataFileWriter getRowDataFileWriter(
+      Path path, HoodieTable hoodieTable, HoodieWriteConfig config, RowType schema)
+      throws IOException {
+    final String extension = FSUtils.getFileExtension(path.getName());
+    if (PARQUET.getFileExtension().equals(extension)) {
+      return newParquetInternalRowFileWriter(path, config, schema, hoodieTable);
+    }
+    throw new UnsupportedOperationException(extension + " format not supported yet.");
+  }
+
+  private static HoodieRowDataFileWriter newParquetInternalRowFileWriter(
+      Path path, HoodieWriteConfig writeConfig, RowType rowType, HoodieTable table)
+      throws IOException {
+    BloomFilter filter = BloomFilterFactory.createBloomFilter(
+        writeConfig.getBloomFilterNumEntries(),
+        writeConfig.getBloomFilterFPP(),
+        writeConfig.getDynamicBloomFilterMaxNumEntries(),
+        writeConfig.getBloomFilterType());
     HoodieRowDataParquetWriteSupport writeSupport =
-        new HoodieRowDataParquetWriteSupport(conf, rowType, null);
-    return new HoodieRowDataParquetOutputStreamWriter(
-        new FSDataOutputStream(outputStream, null), writeSupport, getParquetConfig(config, writeSupport));
-  }
-
-  /**
-   * Create a parquet RowData writer on a given storage path.
-   *
-   * @param instantTime         instant time to write
-   * @param storagePath         file storage path
-   * @param config              hoodie configuration
-   * @param schema              write schema
-   * @param taskContextSupplier task context supplier
-   *
-   * @return a RowData parquet writer
-   */
-  @Override
-  public HoodieFileWriter newParquetFileWriter(
-      String instantTime,
-      StoragePath storagePath,
-      HoodieConfig config,
-      HoodieSchema schema,
-      TaskContextSupplier taskContextSupplier) throws IOException {
-    final RowType rowType = (RowType) RowDataQueryContexts.fromSchema(schema).getRowType().getLogicalType();
-    return newParquetFileWriter(instantTime, storagePath, config, rowType, taskContextSupplier);
-  }
-
-  /**
-   * Create a parquet RowData writer on a given storage path.
-   *
-   * @param instantTime         instant time to write
-   * @param storagePath         file storage path
-   * @param config              hoodie configuration
-   * @param rowType             rowType of record
-   * @param taskContextSupplier task context supplier
-   *
-   * @return a RowData parquet writer
-   */
-  public HoodieFileWriter newParquetFileWriter(
-      String instantTime,
-      StoragePath storagePath,
-      HoodieConfig config,
-      RowType rowType,
-      TaskContextSupplier taskContextSupplier) throws IOException {
-    boolean populateMetaFields = config.getBooleanOrDefault(HoodieTableConfig.POPULATE_META_FIELDS);
-    boolean withOperation = config.getBooleanOrDefault(HoodieWriteConfig.ALLOW_OPERATION_METADATA_FIELD);
-
-    Pair<StorageConfiguration, HoodieConfig> injectedConfigs = HoodieParquetConfigInjector.applyConfigInjector(storagePath, storage.getConf(), config);
-    StorageConfiguration storageConfiguration = injectedConfigs.getLeft();
-    HoodieConfig hoodieConfig = injectedConfigs.getRight();
-
-    Configuration conf = (Configuration) storageConfiguration.unwrapAs(Configuration.class);
-    BloomFilter filter = createBloomFilter(hoodieConfig);
-    HoodieRowDataParquetWriteSupport writeSupport =
-        new HoodieRowDataParquetWriteSupport(conf, rowType, filter);
-
-    return new HoodieRowDataParquetWriter(storagePath, getParquetConfig(hoodieConfig, writeSupport),
-        instantTime, taskContextSupplier, populateMetaFields, withOperation);
-  }
-
-  private static HoodieParquetConfig<HoodieRowDataParquetWriteSupport> getParquetConfig(
-      HoodieConfig config, HoodieRowDataParquetWriteSupport writeSupport) {
-    return new HoodieParquetConfig<>(
+        new HoodieRowDataParquetWriteSupport((Configuration) table.getStorageConf().unwrap(), rowType, filter);
+    return new HoodieRowDataParquetWriter(
+        convertToStoragePath(path), new HoodieParquetConfig<>(
         writeSupport,
-        getCompressionCodecName(config.getStringOrDefault(HoodieStorageConfig.PARQUET_COMPRESSION_CODEC_NAME)),
-        config.getIntOrDefault(HoodieStorageConfig.PARQUET_BLOCK_SIZE),
-        config.getIntOrDefault(HoodieStorageConfig.PARQUET_PAGE_SIZE),
-        config.getLongOrDefault(HoodieStorageConfig.PARQUET_MAX_FILE_SIZE),
+        getCompressionCodecName(writeConfig.getParquetCompressionCodec()),
+        writeConfig.getParquetBlockSize(),
+        writeConfig.getParquetPageSize(),
+        writeConfig.getParquetMaxFileSize(),
         new HadoopStorageConfiguration(writeSupport.getHadoopConf()),
-        config.getDoubleOrDefault(HoodieStorageConfig.PARQUET_COMPRESSION_RATIO_FRACTION),
-        config.getBooleanOrDefault(HoodieStorageConfig.PARQUET_DICTIONARY_ENABLED));
+        writeConfig.getParquetCompressionRatio(),
+        writeConfig.parquetDictionaryEnabled()));
   }
 }
