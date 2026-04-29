@@ -668,6 +668,26 @@ public class TestHoodieSchemaConverter {
   }
 
   @Test
+  public void testVariantInArrayConversionThrowsOnPreFlink21() {
+    // ARRAY<VARIANT> also throws because the inner VARIANT type can't be created on pre-2.1
+    HoodieSchema arrayOfVariant = HoodieSchema.createArray(HoodieSchema.createVariant());
+    UnsupportedOperationException ex = assertThrows(
+        UnsupportedOperationException.class,
+        () -> HoodieSchemaConverter.convertToDataType(arrayOfVariant));
+    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+  }
+
+  @Test
+  public void testVariantInMapConversionThrowsOnPreFlink21() {
+    // MAP<STRING, VARIANT> also throws because the inner VARIANT can't be created on pre-2.1
+    HoodieSchema mapOfVariant = HoodieSchema.createMap(HoodieSchema.createVariant());
+    UnsupportedOperationException ex = assertThrows(
+        UnsupportedOperationException.class,
+        () -> HoodieSchemaConverter.convertToDataType(mapOfVariant));
+    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+  }
+
+  @Test
   public void testShreddedVariantConversionThrows() {
     HoodieSchema.Variant shredded = HoodieSchema.createVariantShredded(
         HoodieSchema.create(HoodieSchemaType.STRING));

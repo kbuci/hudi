@@ -242,4 +242,32 @@ public class TestParquetSchemaConverter {
         () -> ParquetSchemaConverter.convertToRowType(variantParquet));
     assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
   }
+
+  @Test
+  void testNestedVariantInArrayParquetReadThrowsOnPreFlink21() {
+    // A Parquet schema with ARRAY<variant_group> should also throw on pre-2.1
+    org.apache.parquet.schema.MessageType nestedVariantParquet = new org.apache.parquet.schema.MessageType(
+        "test",
+        org.apache.parquet.schema.Types.primitive(
+            org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT32,
+            org.apache.parquet.schema.Type.Repetition.REQUIRED).named("id"),
+        org.apache.parquet.schema.Types.buildGroup(org.apache.parquet.schema.Type.Repetition.OPTIONAL)
+            .as(org.apache.parquet.schema.LogicalTypeAnnotation.listType())
+            .addField(org.apache.parquet.schema.Types.repeatedGroup()
+                .addField(org.apache.parquet.schema.Types.buildGroup(org.apache.parquet.schema.Type.Repetition.OPTIONAL)
+                    .addField(org.apache.parquet.schema.Types.primitive(
+                        org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
+                        org.apache.parquet.schema.Type.Repetition.REQUIRED).named("metadata"))
+                    .addField(org.apache.parquet.schema.Types.primitive(
+                        org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
+                        org.apache.parquet.schema.Type.Repetition.REQUIRED).named("value"))
+                    .named("element"))
+                .named("list"))
+            .named("variants"));
+
+    UnsupportedOperationException ex = assertThrows(
+        UnsupportedOperationException.class,
+        () -> ParquetSchemaConverter.convertToRowType(nestedVariantParquet));
+    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+  }
 }

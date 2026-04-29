@@ -18,7 +18,6 @@
 
 package org.apache.hudi.io.storage.row;
 
-import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.io.storage.row.parquet.ParquetRowDataWriter;
 import org.apache.hudi.io.storage.row.parquet.ParquetSchemaConverter;
 
@@ -39,12 +38,10 @@ public class RowDataParquetWriteSupport extends WriteSupport<RowData> {
   private final RowType rowType;
   private final MessageType schema;
   private ParquetRowDataWriter writer;
-  protected final Configuration hadoopConf;
 
-  public RowDataParquetWriteSupport(RowType rowType, Configuration config) {
+  public RowDataParquetWriteSupport(RowType rowType) {
     super();
     this.rowType = rowType;
-    this.hadoopConf = new Configuration(config);
     this.schema = ParquetSchemaConverter.convertToParquetMessageType("flink_schema", rowType);
   }
 
@@ -56,11 +53,7 @@ public class RowDataParquetWriteSupport extends WriteSupport<RowData> {
   @Override
   public void prepareForWrite(RecordConsumer recordConsumer) {
     // should make the utc timestamp configurable
-    boolean utcTimestamp =
-        hadoopConf.getBoolean(
-            HoodieStorageConfig.WRITE_UTC_TIMEZONE.key(),
-            HoodieStorageConfig.WRITE_UTC_TIMEZONE.defaultValue());
-    this.writer = new ParquetRowDataWriter(recordConsumer, rowType, schema, utcTimestamp);
+    this.writer = new ParquetRowDataWriter(recordConsumer, rowType, schema, true);
   }
 
   @Override

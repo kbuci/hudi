@@ -164,6 +164,11 @@ public class ParquetSchemaConverter {
               "VARIANT type is only supported in Flink 2.1+. "
                   + "VariantType class not found on the classpath.");
         }
+        // Mark non-null here; field-level nullability is applied by the Parquet
+        // repetition check below (REQUIRED → notNull, OPTIONAL → stays nullable for
+        // other types). Variant groups are always non-null because the Parquet Variant
+        // physical layout is a required struct with metadata+value; a nullable variant
+        // column uses OPTIONAL repetition on the enclosing field, not a nullable type.
         dataType = variantDataType.notNull();
       } else {
         dataType =

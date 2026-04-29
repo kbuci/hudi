@@ -21,11 +21,9 @@ package org.apache.hudi.io.storage.row;
 import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.config.HoodieConfig;
 import org.apache.hudi.common.config.HoodieParquetConfig;
-import org.apache.hudi.common.config.HoodieStorageConfig;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.table.HoodieTableConfig;
-import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.io.HoodieParquetConfigInjector;
@@ -71,11 +69,8 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
       HoodieSchema schema) throws IOException {
     final RowType rowType = (RowType) RowDataQueryContexts.fromSchema(schema).getRowType().getLogicalType();
     Configuration conf = storage.getConf().unwrapAs(Configuration.class);
-    String writeSupportClass = config.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS);
-    HoodieRowDataParquetWriteSupport writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
-        writeSupportClass,
-        new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
-        conf, rowType, null);
+    HoodieRowDataParquetWriteSupport writeSupport =
+        new HoodieRowDataParquetWriteSupport(conf, rowType, null);
     return new HoodieRowDataParquetOutputStreamWriter(
         new FSDataOutputStream(outputStream, null), writeSupport, getParquetConfig(config, writeSupport));
   }
@@ -128,11 +123,8 @@ public class HoodieRowDataFileWriterFactory extends HoodieFileWriterFactory {
 
     Configuration conf = (Configuration) storageConfiguration.unwrapAs(Configuration.class);
     BloomFilter filter = createBloomFilter(hoodieConfig);
-    String writeSupportClass = hoodieConfig.getStringOrDefault(HoodieStorageConfig.HOODIE_PARQUET_FLINK_ROW_DATA_WRITE_SUPPORT_CLASS);
-    HoodieRowDataParquetWriteSupport writeSupport = (HoodieRowDataParquetWriteSupport) ReflectionUtils.loadClass(
-        writeSupportClass,
-        new Class<?>[] {Configuration.class, RowType.class, BloomFilter.class},
-        conf, rowType, filter);
+    HoodieRowDataParquetWriteSupport writeSupport =
+        new HoodieRowDataParquetWriteSupport(conf, rowType, filter);
 
     return new HoodieRowDataParquetWriter(storagePath, getParquetConfig(hoodieConfig, writeSupport),
         instantTime, taskContextSupplier, populateMetaFields, withOperation);
