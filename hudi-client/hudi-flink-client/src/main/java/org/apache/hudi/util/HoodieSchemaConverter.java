@@ -65,7 +65,7 @@ public class HoodieSchemaConverter {
    * or {@code null} if the class is not on the classpath (pre-2.1 Flink).
    * The reflection result is cached so the class lookup happens at most once per JVM.
    */
-  static DataType tryCreateVariantDataType() {
+  public static DataType tryCreateVariantDataType() {
     if (!variantTypeResolved) {
       synchronized (HoodieSchemaConverter.class) {
         if (!variantTypeResolved) {
