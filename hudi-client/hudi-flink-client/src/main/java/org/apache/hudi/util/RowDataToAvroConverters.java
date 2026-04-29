@@ -239,18 +239,7 @@ public class RowDataToAvroConverters {
         break;
       case RAW:
       default:
-        // Flink 2.1+ introduces VARIANT as a first-class LogicalTypeRoot. When present,
-        // the runtime provides a Variant object (via RowData.getVariant()) from which we
-        // can extract raw metadata/value bytes directly — no HoodieSchema inspection is
-        // needed to distinguish Variant from a plain ROW.
-        //
-        // We detect it by name rather than by enum constant because hudi-flink-client is
-        // compiled against Flink 1.20 (where LogicalTypeRoot.VARIANT does not exist).
-        //
-        // For older Flink versions the Variant arrives as ROW<metadata BYTES, value BYTES>
-        // and the ROW case above handles conversion correctly because HoodieSchema carries
-        // the VARIANT type information that Flink's RowType cannot express (see
-        // convertVariant() in HoodieSchemaConverter).
+        // Flink 2.1+ VARIANT detection via string comparison (compiled against Flink 1.20).
         if ("VARIANT".equals(type.getTypeRoot().name())) {
           converter = createVariantConverter();
           break;
@@ -347,9 +336,6 @@ public class RowDataToAvroConverters {
 
       @Override
       public Object convert(HoodieSchema schema, Object object) {
-        if (schema.getType() == HoodieSchemaType.VARIANT) {
-          return convertVariantToAvro(schema, (RowData) object);
-        }
         final RowData row = (RowData) object;
         final List<HoodieSchemaField> fields = schema.getFields();
         final GenericRecord record = new GenericData.Record(schema.toAvroSchema());
@@ -363,28 +349,6 @@ public class RowDataToAvroConverters {
         return record;
       }
     };
-  }
-
-  /**
-   * Converts a Flink ROW (representing an unshredded Variant) directly to an Avro GenericRecord
-   * with the variant logicalType annotation. This bypasses the generic row converter to guard
-   * against field-count mismatches between the Flink ROW (always 2 fields: metadata, value)
-   * and the Avro Variant schema (which may have 3 fields for shredded Variants).
-   */
-  private static GenericRecord convertVariantToAvro(HoodieSchema variantSchema, RowData row) {
-    if (variantSchema instanceof HoodieSchema.Variant
-        && ((HoodieSchema.Variant) variantSchema).isShredded()) {
-      throw new UnsupportedOperationException(
-          "Shredded Variant is not yet supported in Flink. Use unshredded Variant instead.");
-    }
-    GenericRecord record = new GenericData.Record(variantSchema.toAvroSchema());
-    byte[] metadata = row.isNullAt(0) ? null : row.getBinary(0);
-    byte[] value = row.isNullAt(1) ? null : row.getBinary(1);
-    record.put(HoodieSchema.Variant.VARIANT_METADATA_FIELD,
-        metadata != null ? ByteBuffer.wrap(metadata) : null);
-    record.put(HoodieSchema.Variant.VARIANT_VALUE_FIELD,
-        value != null ? ByteBuffer.wrap(value) : null);
-    return record;
   }
 
   private static RowDataToAvroConverter createArrayConverter(ArrayType arrayType, boolean utcTimezone) {

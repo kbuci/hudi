@@ -19,8 +19,6 @@
 package org.apache.hudi.io.storage.row.parquet;
 
 import org.apache.hudi.common.schema.HoodieSchema;
-import org.apache.hudi.common.schema.HoodieSchemaField;
-import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.util.HoodieSchemaConverter;
 
@@ -161,14 +159,12 @@ public class ParquetSchemaConverter {
                 convertToRowField(keyValueType.getRight()).getType()));
       } else if (isVariantGroup(groupType)) {
         DataType variantDataType = HoodieSchemaConverter.tryCreateVariantDataType();
-        if (variantDataType != null) {
-          dataType = variantDataType.notNull();
-        } else {
-          dataType = DataTypes.ROW(
-              DataTypes.FIELD(HoodieSchema.Variant.VARIANT_METADATA_FIELD, DataTypes.BYTES().notNull()),
-              DataTypes.FIELD(HoodieSchema.Variant.VARIANT_VALUE_FIELD, DataTypes.BYTES().notNull())
-          ).notNull();
+        if (variantDataType == null) {
+          throw new UnsupportedOperationException(
+              "VARIANT type is only supported in Flink 2.1+. "
+                  + "VariantType class not found on the classpath.");
         }
+        dataType = variantDataType.notNull();
       } else {
         dataType =
             DataTypes.of(new RowType(
@@ -195,41 +191,22 @@ public class ParquetSchemaConverter {
   }
 
   public static MessageType convertToParquetMessageType(String name, RowType rowType) {
-    return convertToParquetMessageType(name, rowType, null);
-  }
-
-  /**
-   * Converts a Flink RowType to a Parquet MessageType, using the provided HoodieSchema
-   * to detect Variant columns and emit the canonical Variant Parquet layout.
-   *
-   * @param name         the name of the Parquet message type
-   * @param rowType      the Flink RowType
-   * @param hoodieSchema optional HoodieSchema for precise type conversion (e.g. Variant, logical types); may be null
-   */
-  public static MessageType convertToParquetMessageType(String name, RowType rowType, HoodieSchema hoodieSchema) {
-    List<HoodieSchemaField> hoodieFields = (hoodieSchema != null && hoodieSchema.hasFields())
-        ? hoodieSchema.getFields() : null;
     Type[] types = new Type[rowType.getFieldCount()];
     for (int i = 0; i < rowType.getFieldCount(); i++) {
       String fieldName = rowType.getFieldNames().get(i);
       LogicalType fieldType = rowType.getTypeAt(i);
       Type.Repetition repetition = fieldType.isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED;
-      HoodieSchema fieldSchema = resolveFieldSchema(hoodieFields, i);
-      types[i] = convertToParquetType(fieldName, fieldType, repetition, fieldSchema);
+      types[i] = convertToParquetType(fieldName, fieldType, repetition);
     }
     return new MessageType(name, types);
   }
 
   private static Type convertToParquetType(
       String name, LogicalType type, Type.Repetition repetition) {
-    return convertToParquetType(name, type, repetition, null);
-  }
-
-  private static Type convertToParquetType(
-      String name, LogicalType type, Type.Repetition repetition, HoodieSchema fieldSchema) {
-    HoodieSchemaType resolvedType = resolveHoodieSchemaType(fieldSchema);
-    if (resolvedType == HoodieSchemaType.VARIANT) {
-      return convertVariantToParquetType(name, fieldSchema, repetition);
+    // Flink 2.1+ native VARIANT detection via string comparison to avoid
+    // compile-time dependency on the 2.1+ LogicalTypeRoot.VARIANT enum constant.
+    if ("VARIANT".equals(type.getTypeRoot().name())) {
+      return convertVariantToParquetType(name, repetition);
     }
     switch (type.getTypeRoot()) {
       case CHAR:
@@ -338,16 +315,12 @@ public class ParquetSchemaConverter {
             .named(name);
       case ROW:
         RowType rowType = (RowType) type;
-        List<HoodieSchemaField> nestedFields = (fieldSchema != null && fieldSchema.hasFields())
-            ? fieldSchema.getFields() : null;
         Types.GroupBuilder<GroupType> builder = Types.buildGroup(repetition);
         for (int i = 0; i < rowType.getFieldCount(); i++) {
           RowType.RowField field = rowType.getFields().get(i);
-          HoodieSchema nestedFieldSchema = resolveFieldSchema(nestedFields, i);
           builder.addField(convertToParquetType(
               field.getName(), field.getType(),
-              field.getType().isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED,
-              nestedFieldSchema));
+              field.getType().isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED));
         }
         return builder.named(name);
       default:
@@ -364,16 +337,10 @@ public class ParquetSchemaConverter {
   }
 
   /**
-   * Converts a Variant column to the canonical Parquet layout:
-   * a group with required binary {@code metadata} and required/optional binary {@code value}.
+   * Converts a Variant column to the canonical unshredded Parquet layout:
+   * a group with required binary {@code metadata} and required binary {@code value}.
    */
-  private static Type convertVariantToParquetType(
-      String name, HoodieSchema variantSchema, Type.Repetition repetition) {
-    if (variantSchema instanceof HoodieSchema.Variant
-        && ((HoodieSchema.Variant) variantSchema).isShredded()) {
-      throw new UnsupportedOperationException(
-          "Shredded Variant is not yet supported in Flink. Use unshredded Variant instead.");
-    }
+  private static Type convertVariantToParquetType(String name, Type.Repetition repetition) {
     // TODO: add .as(LogicalTypeAnnotation.variantType()) once parquet-java is bumped to 1.16.0
     return Types.buildGroup(repetition)
         .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY, Type.Repetition.REQUIRED)
@@ -400,44 +367,4 @@ public class ParquetSchemaConverter {
         && valueField.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.BINARY;
   }
 
-  /**
-   * Resolves the underlying HoodieSchemaType from a HoodieSchema, unwrapping nullable unions.
-   * Returns null if the schema is null or doesn't resolve to a concrete type.
-   */
-  private static HoodieSchemaType resolveHoodieSchemaType(HoodieSchema schema) {
-    if (schema == null) {
-      return null;
-    }
-    if (schema.getType() == HoodieSchemaType.UNION) {
-      List<HoodieSchema> types = schema.getTypes();
-      for (HoodieSchema inner : types) {
-        if (inner.getType() != HoodieSchemaType.NULL) {
-          return inner.getType();
-        }
-      }
-      return null;
-    }
-    return schema.getType();
-  }
-
-  /**
-   * Resolves the HoodieSchema for a field at the given index, unwrapping nullable unions.
-   * Returns null if the field list is null or the index is out of bounds.
-   */
-  private static HoodieSchema resolveFieldSchema(List<HoodieSchemaField> fields, int index) {
-    if (fields == null || index >= fields.size()) {
-      return null;
-    }
-    HoodieSchemaField field = fields.get(index);
-    HoodieSchema schema = field.schema();
-    if (schema.getType() == HoodieSchemaType.UNION) {
-      List<HoodieSchema> types = schema.getTypes();
-      for (HoodieSchema inner : types) {
-        if (inner.getType() != HoodieSchemaType.NULL) {
-          return inner;
-        }
-      }
-    }
-    return schema;
-  }
 }

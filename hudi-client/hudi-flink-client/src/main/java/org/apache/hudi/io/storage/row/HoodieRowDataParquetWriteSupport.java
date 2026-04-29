@@ -20,7 +20,6 @@ package org.apache.hudi.io.storage.row;
 
 import org.apache.hudi.avro.HoodieBloomFilterWriteSupport;
 import org.apache.hudi.common.bloom.BloomFilter;
-import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
 
@@ -40,12 +39,7 @@ public class HoodieRowDataParquetWriteSupport extends RowDataParquetWriteSupport
   private final Option<HoodieBloomFilterWriteSupport<String>> bloomFilterWriteSupportOpt;
 
   public HoodieRowDataParquetWriteSupport(Configuration conf, RowType rowType, BloomFilter bloomFilter) {
-    this(conf, rowType, bloomFilter, Option.empty());
-  }
-
-  public HoodieRowDataParquetWriteSupport(Configuration conf, RowType rowType, BloomFilter bloomFilter,
-                                          Option<HoodieSchema> hoodieSchema) {
-    super(rowType, conf, hoodieSchema);
+    super(rowType, conf);
     this.bloomFilterWriteSupportOpt = Option.ofNullable(bloomFilter)
         .map(HoodieBloomFilterRowDataWriteSupport::new);
   }

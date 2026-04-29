@@ -108,10 +108,9 @@ public class HoodieSchemaConverter {
    * <p>The "{rowName}." is used as the nested row type name prefix in order to generate
    * the right schema. Nested record types that only differ by type name are still compatible.
    *
-   * <p>On Flink 2.1+, {@code LogicalTypeRoot.VARIANT} is handled and mapped to
-   * {@link HoodieSchema#createVariant()}. On older Flink versions, Variant is represented
-   * as {@code ROW<metadata BYTES, value BYTES>} and mapped to a RECORD schema (the VARIANT
-   * case never fires because the enum constant does not exist).
+   * <p>On Flink 2.1+, {@code LogicalTypeRoot.VARIANT} is detected via string comparison
+   * (to avoid compile-time dependency) and mapped to {@link HoodieSchema#createVariant()}.
+   * Pre-2.1 Flink does not support Variant.
    *
    * @param logicalType Flink logical type
    * @param rowName     the record name
@@ -601,25 +600,15 @@ public class HoodieSchemaConverter {
   }
 
   /**
-   * Converts a Variant HoodieSchema to the appropriate Flink DataType.
+   * Converts a Variant HoodieSchema to the native Flink {@code VariantType} DataType.
+   * Requires Flink 2.1+ at runtime; throws {@link UnsupportedOperationException} on older versions.
    *
-   * <h3>Version-gated behavior</h3>
-   *
-   * <ul>
-   *   <li><b>Flink 2.1+:</b> Emits native {@code VariantType} (resolved via reflection since this
-   *       module compiles against Flink 1.20). This enables Flink SQL functions like
-   *       {@code PARSE_JSON}, proper {@code DESCRIBE TABLE} output, and makes HoodieSchema
-   *       threading optional in the converter pipeline because the LogicalType itself carries
-   *       the Variant semantics.</li>
-   *   <li><b>Pre-2.1 Flink:</b> Falls back to {@code ROW<metadata BYTES, value BYTES>} because
-   *       Flink's type system has no way to represent Variant. HoodieSchema threading through
-   *       the conversion pipeline ({@link RowDataToAvroConverters},
-   *       {@code RowDataParquetWriteSupport}, etc.) is required to preserve the knowledge that
-   *       a given ROW is actually a Variant.</li>
-   * </ul>
+   * <p>Resolved via reflection since this module compiles against Flink 1.20 where
+   * {@code VariantType} does not exist.
    *
    * @param schema HoodieSchema to convert (must be a VARIANT type)
-   * @return native VariantType DataType on Flink 2.1+, or ROW DataType on older Flink
+   * @return native VariantType DataType
+   * @throws UnsupportedOperationException if Flink runtime is pre-2.1 or variant is shredded
    */
   private static DataType convertVariant(HoodieSchema schema) {
     if (schema.getType() != HoodieSchemaType.VARIANT) {
@@ -636,10 +625,9 @@ public class HoodieSchemaConverter {
       return variantDataType.notNull();
     }
 
-    return DataTypes.ROW(
-        DataTypes.FIELD("metadata", DataTypes.BYTES().notNull()),
-        DataTypes.FIELD("value", DataTypes.BYTES().notNull())
-    ).notNull();
+    throw new UnsupportedOperationException(
+        "VARIANT type is only supported in Flink 2.1+. "
+            + "VariantType class not found on the classpath.");
   }
 
   /**

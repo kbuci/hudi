@@ -33,10 +33,6 @@ import org.apache.flink.table.types.logical.SmallIntType;
 import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.table.types.logical.TinyIntType;
 import org.apache.flink.table.types.logical.VarCharType;
-import org.apache.hudi.common.schema.HoodieSchema;
-import org.apache.hudi.common.schema.HoodieSchemaField;
-import org.apache.hudi.common.schema.HoodieSchemaType;
-
 import org.apache.parquet.schema.MessageType;
 import org.junit.jupiter.api.Test;
 
@@ -224,48 +220,26 @@ public class TestParquetSchemaConverter {
   }
 
   @Test
-  void testShreddedVariantParquetConversionThrows() {
-    HoodieSchema.Variant shreddedVariant = HoodieSchema.createVariantShredded(
-        HoodieSchema.create(HoodieSchemaType.INT));
-    HoodieSchema recordSchema = HoodieSchema.createRecord(
-        "test_record", null, null,
-        Arrays.asList(
-            HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
-            HoodieSchemaField.of("data", shreddedVariant)
-        ));
-
-    RowType rowType = RowType.of(
-        new IntType(),
-        RowType.of(
-            new org.apache.flink.table.types.logical.VarBinaryType(Integer.MAX_VALUE),
-            new org.apache.flink.table.types.logical.VarBinaryType(Integer.MAX_VALUE)));
+  void testVariantParquetReadThrowsOnPreFlink21() {
+    // On pre-2.1 Flink (our compile-time version), reading a Parquet file with a Variant
+    // group must throw since VariantType is not on the classpath.
+    org.apache.parquet.schema.MessageType variantParquet = new org.apache.parquet.schema.MessageType(
+        "test",
+        org.apache.parquet.schema.Types.primitive(
+            org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT32,
+            org.apache.parquet.schema.Type.Repetition.REQUIRED).named("id"),
+        org.apache.parquet.schema.Types.buildGroup(org.apache.parquet.schema.Type.Repetition.REQUIRED)
+            .addField(org.apache.parquet.schema.Types.primitive(
+                org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
+                org.apache.parquet.schema.Type.Repetition.REQUIRED).named("metadata"))
+            .addField(org.apache.parquet.schema.Types.primitive(
+                org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
+                org.apache.parquet.schema.Type.Repetition.REQUIRED).named("value"))
+            .named("data"));
 
     UnsupportedOperationException ex = assertThrows(
         UnsupportedOperationException.class,
-        () -> ParquetSchemaConverter.convertToParquetMessageType("test", rowType, recordSchema));
-    assertTrue(ex.getMessage().contains("Shredded Variant is not yet supported in Flink"));
-  }
-
-  @Test
-  void testUnshreddedVariantParquetConversionSucceeds() {
-    HoodieSchema.Variant unshreddedVariant = HoodieSchema.createVariant();
-    HoodieSchema recordSchema = HoodieSchema.createRecord(
-        "test_record", null, null,
-        Arrays.asList(
-            HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
-            HoodieSchemaField.of("data", unshreddedVariant)
-        ));
-
-    RowType rowType = RowType.of(
-        new IntType(),
-        RowType.of(
-            new org.apache.flink.table.types.logical.VarBinaryType(Integer.MAX_VALUE),
-            new org.apache.flink.table.types.logical.VarBinaryType(Integer.MAX_VALUE)));
-
-    MessageType messageType = ParquetSchemaConverter.convertToParquetMessageType("test", rowType, recordSchema);
-    assertThat(messageType.getFieldCount(), is(2));
-    assertThat(messageType.getType("data").asGroupType().getFieldCount(), is(2));
-    assertThat(messageType.getType("data").asGroupType().containsField("metadata"), is(true));
-    assertThat(messageType.getType("data").asGroupType().containsField("value"), is(true));
+        () -> ParquetSchemaConverter.convertToRowType(variantParquet));
+    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
   }
 }

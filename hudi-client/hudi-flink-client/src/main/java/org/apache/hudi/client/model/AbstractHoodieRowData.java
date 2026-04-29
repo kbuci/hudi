@@ -31,12 +31,19 @@ import org.apache.flink.table.data.TimestampData;
 import org.apache.flink.types.RowKind;
 import org.apache.flink.types.variant.Variant;
 
+import java.lang.reflect.Method;
+
 /**
  * RowData implementation for Hoodie Row. It wraps an {@link RowData} and keeps meta columns locally. But the {@link RowData}
  * does include the meta columns as well just that {@link AbstractHoodieRowData} will intercept queries for meta columns and serve from its
  * copy rather than fetching from {@link RowData}.
  */
 public abstract class AbstractHoodieRowData implements RowData {
+  // Cached RowData.getVariant(int) method handle, resolved once.
+  // On Flink 2.1+ this resolves successfully; on pre-2.1 it stays null.
+  static volatile Method getVariantMethod;
+  static volatile boolean getVariantResolved;
+
   private final String[] metaColumns;
   protected final RowData row;
   protected final int metaColumnsNum;
@@ -168,11 +175,41 @@ public abstract class AbstractHoodieRowData implements RowData {
 
   protected abstract int rebaseOrdinal(int ordinal);
 
+  /**
+   * Delegates to the underlying RowData's native getVariant() on Flink 2.1+
+   * via cached reflection. On pre-2.1 Flink (where RowData lacks getVariant),
+   * this throws UnsupportedOperationException.
+   */
   public Variant getVariant(int ordinal) {
-    if (row.isNullAt(rebaseOrdinal(ordinal))) {
-      return null;
+    return delegateGetVariant(row, rebaseOrdinal(ordinal));
+  }
+
+  static Variant delegateGetVariant(RowData target, int pos) {
+    Method m = resolveGetVariant();
+    if (m == null) {
+      throw new UnsupportedOperationException(
+          "Variant type requires Flink 2.1+. RowData.getVariant(int) not available.");
     }
-    RowData variantRow = row.getRow(rebaseOrdinal(ordinal), 2);
-    return HoodieVariant.fromRowData(variantRow).toFlinkVariant();
+    try {
+      return (Variant) m.invoke(target, pos);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to invoke RowData.getVariant(int)", e);
+    }
+  }
+
+  private static Method resolveGetVariant() {
+    if (!getVariantResolved) {
+      synchronized (AbstractHoodieRowData.class) {
+        if (!getVariantResolved) {
+          try {
+            getVariantMethod = RowData.class.getMethod("getVariant", int.class);
+          } catch (NoSuchMethodException e) {
+            getVariantMethod = null;
+          }
+          getVariantResolved = true;
+        }
+      }
+    }
+    return getVariantMethod;
   }
 }

@@ -149,11 +149,11 @@ public class BootstrapRowData implements RowData {
     return getter.apply(pos);
   }
 
+  /**
+   * Delegates to the underlying RowData's native getVariant() on Flink 2.1+
+   * via cached reflection. On pre-2.1 Flink this throws UnsupportedOperationException.
+   */
   public Variant getVariant(int pos) {
-    if (row.isNullAt(pos)) {
-      return null;
-    }
-    RowData variantRow = row.getRow(pos, 2);
-    return HoodieVariant.fromRowData(variantRow).toFlinkVariant();
+    return AbstractHoodieRowData.delegateGetVariant(row, pos);
   }
 }

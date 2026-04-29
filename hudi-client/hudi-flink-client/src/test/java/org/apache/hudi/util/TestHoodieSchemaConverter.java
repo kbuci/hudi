@@ -638,24 +638,19 @@ public class TestHoodieSchemaConverter {
   }
 
   @Test
-  public void testVariantTypeConversion() {
-    // Test direct Variant conversion
+  public void testVariantTypeConversionThrowsOnPreFlink21() {
+    // On pre-2.1 Flink (our compile-time version), Variant conversion must throw
+    // since VariantType is not on the classpath — mirroring Spark 3's behavior for Variant.
     HoodieSchema variantSchema = HoodieSchema.createVariant();
-    DataType dataType = HoodieSchemaConverter.convertToDataType(variantSchema);
-    assertNotNull(dataType);
-
-    // Verify it's a ROW with metadata and value binary fields
-    RowType rowType = (RowType) dataType.getLogicalType();
-    assertEquals(2, rowType.getFieldCount());
-    assertEquals("metadata", rowType.getFieldNames().get(0));
-    assertEquals("value", rowType.getFieldNames().get(1));
-    assertInstanceOf(VarBinaryType.class, rowType.getTypeAt(0));
-    assertInstanceOf(VarBinaryType.class, rowType.getTypeAt(1));
+    UnsupportedOperationException ex = assertThrows(
+        UnsupportedOperationException.class,
+        () -> HoodieSchemaConverter.convertToDataType(variantSchema));
+    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
   }
 
   @Test
-  public void testVariantInRecordConversion() {
-    // Test Variant field within a record
+  public void testVariantInRecordConversionThrowsOnPreFlink21() {
+    // Variant nested in a record also throws on pre-2.1 Flink
     HoodieSchema recordWithVariant = HoodieSchema.createRecord(
         "test_record",
         null,
@@ -666,15 +661,10 @@ public class TestHoodieSchemaConverter {
         )
     );
 
-    RowType result = HoodieSchemaConverter.convertToRowType(recordWithVariant);
-    assertEquals(2, result.getFieldCount());
-    assertEquals("data", result.getFieldNames().get(1));
-
-    // Verify variant field is a ROW<metadata BYTES, value BYTES>
-    RowType variantRowType = (RowType) result.getTypeAt(1);
-    assertEquals(2, variantRowType.getFieldCount());
-    assertEquals("metadata", variantRowType.getFieldNames().get(0));
-    assertEquals("value", variantRowType.getFieldNames().get(1));
+    UnsupportedOperationException ex = assertThrows(
+        UnsupportedOperationException.class,
+        () -> HoodieSchemaConverter.convertToRowType(recordWithVariant));
+    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
   }
 
   @Test

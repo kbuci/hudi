@@ -155,13 +155,7 @@ public class AvroToRowDataConverters {
       case MULTISET:
         return createMapConverter(type, utcTimezone);
       default:
-        // Flink 2.1+ introduces VARIANT as a first-class LogicalTypeRoot. When present,
-        // we convert the Avro Variant record (metadata + value) into a Flink BinaryVariant
-        // via reflection, since the BinaryVariant class only exists in Flink 2.1+.
-        //
-        // For older Flink versions the VARIANT case never fires because HoodieSchemaConverter
-        // represents Variant as ROW<metadata BYTES, value BYTES>, which is handled by the
-        // ROW case above.
+        // Flink 2.1+ VARIANT detection via string comparison (compiled against Flink 1.20).
         if ("VARIANT".equals(type.getTypeRoot().name())) {
           return createVariantConverter();
         }
