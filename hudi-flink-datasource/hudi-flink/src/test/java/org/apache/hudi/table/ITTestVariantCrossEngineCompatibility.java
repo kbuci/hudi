@@ -23,6 +23,8 @@ import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.utils.FlinkMiniCluster;
 import org.apache.hudi.utils.TestTableEnvs;
 
+import org.apache.flink.runtime.util.EnvironmentInformation;
+
 import org.apache.flink.table.api.TableEnvironment;
 import org.apache.flink.table.api.TableResult;
 import org.apache.flink.types.Row;
@@ -38,6 +40,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
 
 /**
  * Integration test for cross-engine compatibility - verifying that Flink can read Variant tables written by Spark 4.0.
@@ -53,6 +57,9 @@ public class ITTestVariantCrossEngineCompatibility {
    * Variant data is represented as ROW<metadata BYTES, value BYTES> in Flink.
    */
   private void verifyFlinkCanReadSparkVariantTable(String tablePath, String tableType, String testDescription) throws Exception {
+    String flinkVersion = EnvironmentInformation.getVersion();
+    assumeTrue(flinkVersion != null && flinkVersion.compareTo("2.1") >= 0,
+        "Skipping: VARIANT type requires Flink 2.1+ (current: " + flinkVersion + ")");
     TableEnvironment tableEnv = TestTableEnvs.getBatchTableEnv();
 
     // Create a Hudi table pointing to the Spark-written data
