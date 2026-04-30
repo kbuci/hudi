@@ -637,20 +637,28 @@ public class TestHoodieSchemaConverter {
     assertEquals(HoodieSchemaType.BLOB, convertedMap.getValueType().getType());
   }
 
-  @Test
-  public void testVariantTypeConversionThrowsOnPreFlink21() {
-    // On pre-2.1 Flink (our compile-time version), Variant conversion must throw
-    // since VariantType is not on the classpath — mirroring Spark 3's behavior for Variant.
-    HoodieSchema variantSchema = HoodieSchema.createVariant();
-    UnsupportedOperationException ex = assertThrows(
-        UnsupportedOperationException.class,
-        () -> HoodieSchemaConverter.convertToDataType(variantSchema));
-    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+  private static boolean hasNativeVariantType() {
+    return HoodieSchemaConverter.tryCreateVariantDataType() != null;
   }
 
   @Test
-  public void testVariantInRecordConversionThrowsOnPreFlink21() {
-    // Variant nested in a record also throws on pre-2.1 Flink
+  public void testVariantTypeConversion() {
+    HoodieSchema variantSchema = HoodieSchema.createVariant();
+
+    if (hasNativeVariantType()) {
+      DataType dataType = HoodieSchemaConverter.convertToDataType(variantSchema);
+      assertNotNull(dataType);
+      assertEquals("VARIANT", dataType.getLogicalType().getTypeRoot().name());
+    } else {
+      UnsupportedOperationException ex = assertThrows(
+          UnsupportedOperationException.class,
+          () -> HoodieSchemaConverter.convertToDataType(variantSchema));
+      assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    }
+  }
+
+  @Test
+  public void testVariantInRecordConversion() {
     HoodieSchema recordWithVariant = HoodieSchema.createRecord(
         "test_record",
         null,
@@ -661,30 +669,53 @@ public class TestHoodieSchemaConverter {
         )
     );
 
-    UnsupportedOperationException ex = assertThrows(
-        UnsupportedOperationException.class,
-        () -> HoodieSchemaConverter.convertToRowType(recordWithVariant));
-    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    if (hasNativeVariantType()) {
+      RowType result = HoodieSchemaConverter.convertToRowType(recordWithVariant);
+      assertEquals(2, result.getFieldCount());
+      assertEquals("data", result.getFieldNames().get(1));
+      assertEquals("VARIANT", result.getTypeAt(1).getTypeRoot().name());
+    } else {
+      UnsupportedOperationException ex = assertThrows(
+          UnsupportedOperationException.class,
+          () -> HoodieSchemaConverter.convertToRowType(recordWithVariant));
+      assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    }
   }
 
   @Test
-  public void testVariantInArrayConversionThrowsOnPreFlink21() {
-    // ARRAY<VARIANT> also throws because the inner VARIANT type can't be created on pre-2.1
+  public void testVariantInArrayConversion() {
     HoodieSchema arrayOfVariant = HoodieSchema.createArray(HoodieSchema.createVariant());
-    UnsupportedOperationException ex = assertThrows(
-        UnsupportedOperationException.class,
-        () -> HoodieSchemaConverter.convertToDataType(arrayOfVariant));
-    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+
+    if (hasNativeVariantType()) {
+      DataType dataType = HoodieSchemaConverter.convertToDataType(arrayOfVariant);
+      assertNotNull(dataType);
+      assertInstanceOf(ArrayType.class, dataType.getLogicalType());
+      LogicalType elementType = ((ArrayType) dataType.getLogicalType()).getElementType();
+      assertEquals("VARIANT", elementType.getTypeRoot().name());
+    } else {
+      UnsupportedOperationException ex = assertThrows(
+          UnsupportedOperationException.class,
+          () -> HoodieSchemaConverter.convertToDataType(arrayOfVariant));
+      assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    }
   }
 
   @Test
-  public void testVariantInMapConversionThrowsOnPreFlink21() {
-    // MAP<STRING, VARIANT> also throws because the inner VARIANT can't be created on pre-2.1
+  public void testVariantInMapConversion() {
     HoodieSchema mapOfVariant = HoodieSchema.createMap(HoodieSchema.createVariant());
-    UnsupportedOperationException ex = assertThrows(
-        UnsupportedOperationException.class,
-        () -> HoodieSchemaConverter.convertToDataType(mapOfVariant));
-    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+
+    if (hasNativeVariantType()) {
+      DataType dataType = HoodieSchemaConverter.convertToDataType(mapOfVariant);
+      assertNotNull(dataType);
+      assertInstanceOf(MapType.class, dataType.getLogicalType());
+      LogicalType valueType = ((MapType) dataType.getLogicalType()).getValueType();
+      assertEquals("VARIANT", valueType.getTypeRoot().name());
+    } else {
+      UnsupportedOperationException ex = assertThrows(
+          UnsupportedOperationException.class,
+          () -> HoodieSchemaConverter.convertToDataType(mapOfVariant));
+      assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    }
   }
 
   @Test

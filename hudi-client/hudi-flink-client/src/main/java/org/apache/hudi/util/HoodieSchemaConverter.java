@@ -622,8 +622,6 @@ public class HoodieSchemaConverter {
 
     DataType variantDataType = tryCreateVariantDataType();
     if (variantDataType != null) {
-      // All types in convertToFlinkType() return non-null DataTypes; field-level
-      // nullability is handled by UNION wrappers in HoodieSchema, not at the type level.
       return variantDataType.notNull();
     }
 

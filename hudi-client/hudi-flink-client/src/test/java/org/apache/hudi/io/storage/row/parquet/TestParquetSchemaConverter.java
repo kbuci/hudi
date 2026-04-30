@@ -39,8 +39,15 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 
+import org.apache.hudi.util.HoodieSchemaConverter;
+
+import org.apache.flink.table.types.logical.LogicalType;
+
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -220,9 +227,7 @@ public class TestParquetSchemaConverter {
   }
 
   @Test
-  void testVariantParquetReadThrowsOnPreFlink21() {
-    // On pre-2.1 Flink (our compile-time version), reading a Parquet file with a Variant
-    // group must throw since VariantType is not on the classpath.
+  void testVariantParquetRead() {
     org.apache.parquet.schema.MessageType variantParquet = new org.apache.parquet.schema.MessageType(
         "test",
         org.apache.parquet.schema.Types.primitive(
@@ -237,15 +242,20 @@ public class TestParquetSchemaConverter {
                 org.apache.parquet.schema.Type.Repetition.REQUIRED).named("value"))
             .named("data"));
 
-    UnsupportedOperationException ex = assertThrows(
-        UnsupportedOperationException.class,
-        () -> ParquetSchemaConverter.convertToRowType(variantParquet));
-    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    if (HoodieSchemaConverter.tryCreateVariantDataType() != null) {
+      RowType rowType = ParquetSchemaConverter.convertToRowType(variantParquet);
+      assertEquals(2, rowType.getFieldCount());
+      assertEquals("VARIANT", rowType.getTypeAt(1).getTypeRoot().name());
+    } else {
+      UnsupportedOperationException ex = assertThrows(
+          UnsupportedOperationException.class,
+          () -> ParquetSchemaConverter.convertToRowType(variantParquet));
+      assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    }
   }
 
   @Test
-  void testNestedVariantInArrayParquetReadThrowsOnPreFlink21() {
-    // A Parquet schema with ARRAY<variant_group> should also throw on pre-2.1
+  void testNestedVariantInArrayParquetRead() {
     org.apache.parquet.schema.MessageType nestedVariantParquet = new org.apache.parquet.schema.MessageType(
         "test",
         org.apache.parquet.schema.Types.primitive(
@@ -265,9 +275,18 @@ public class TestParquetSchemaConverter {
                 .named("list"))
             .named("variants"));
 
-    UnsupportedOperationException ex = assertThrows(
-        UnsupportedOperationException.class,
-        () -> ParquetSchemaConverter.convertToRowType(nestedVariantParquet));
-    assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    if (HoodieSchemaConverter.tryCreateVariantDataType() != null) {
+      RowType rowType = ParquetSchemaConverter.convertToRowType(nestedVariantParquet);
+      assertNotNull(rowType);
+      assertEquals(2, rowType.getFieldCount());
+      LogicalType variantsType = rowType.getTypeAt(1);
+      assertInstanceOf(ArrayType.class, variantsType);
+      assertEquals("VARIANT", ((ArrayType) variantsType).getElementType().getTypeRoot().name());
+    } else {
+      UnsupportedOperationException ex = assertThrows(
+          UnsupportedOperationException.class,
+          () -> ParquetSchemaConverter.convertToRowType(nestedVariantParquet));
+      assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    }
   }
 }
