@@ -328,13 +328,15 @@ public class TestParquetSchemaConverter {
         "test",
         Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
             Type.Repetition.REQUIRED).named("id"),
-        new GroupType(Type.Repetition.REQUIRED, "data", variantAnnotation,
-            Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
-                Type.Repetition.REQUIRED).named("metadata"),
-            Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
-                Type.Repetition.OPTIONAL).named("value"),
-            Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
-                Type.Repetition.OPTIONAL).named("typed_value")));
+        Types.buildGroup(Type.Repetition.REQUIRED)
+            .as(variantAnnotation)
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("metadata"))
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.OPTIONAL).named("value"))
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.OPTIONAL).named("typed_value"))
+            .named("data"));
 
     UnsupportedOperationException ex = assertThrows(
         UnsupportedOperationException.class,
