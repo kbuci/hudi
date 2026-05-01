@@ -53,8 +53,10 @@ public class ITTestVariantCrossEngineCompatibility {
 
   /**
    * Builds the DDL to create a Hudi table pointing to Spark-written data.
-   * In Flink, Variant is represented as ROW<metadata BYTES, value BYTES>.
-   * NOTE: value is a reserved keyword and must be backtick-escaped.
+   * The DDL declares the variant column as {@code ROW<metadata BYTES, value BYTES>}
+   * for compatibility across all Flink versions. On Flink 2.1+ native VARIANT
+   * could also be used, but ROW works universally.
+   * NOTE: {@code value} is a reserved keyword and must be backtick-escaped.
    */
   private String createVariantTableDdl(String tablePath, String tableType) {
     return String.format(

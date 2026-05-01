@@ -157,18 +157,20 @@ public class ParquetSchemaConverter {
             new MapType(
                 convertToRowField(keyValueType.getLeft()).getType().copy(true),
                 convertToRowField(keyValueType.getRight()).getType()));
-      } else if (isVariantGroup(groupType)) {
+      } else if (isVariantGroup(groupType, logicalType)) {
+        if (isShreddedVariant(groupType)) {
+          throw new UnsupportedOperationException(
+              "Shredded Variant is not supported in Flink. "
+                  + "The Parquet group '" + groupType.getName() + "' contains a '"
+                  + HoodieSchema.Variant.VARIANT_TYPED_VALUE_FIELD
+                  + "' field indicating a shredded layout.");
+        }
         DataType variantDataType = HoodieSchemaConverter.tryCreateVariantDataType();
         if (variantDataType == null) {
           throw new UnsupportedOperationException(
               "VARIANT type is only supported in Flink 2.1+. "
                   + "VariantType class not found on the classpath.");
         }
-        // Mark non-null here; field-level nullability is applied by the Parquet
-        // repetition check below (REQUIRED → notNull, OPTIONAL → stays nullable for
-        // other types). Variant groups are always non-null because the Parquet Variant
-        // physical layout is a required struct with metadata+value; a nullable variant
-        // column uses OPTIONAL repetition on the enclosing field, not a nullable type.
         dataType = variantDataType.notNull();
       } else {
         dataType =
@@ -356,11 +358,43 @@ public class ParquetSchemaConverter {
   }
 
   /**
-   * Detects whether a Parquet group represents the canonical Variant physical layout
-   * (a struct with {@code metadata} and {@code value} binary fields).
+   * Detects whether a Parquet group represents a Variant (shredded or unshredded).
+   *
+   * <p><b>Primary check — annotation:</b> parquet-java 1.15.2+ annotates variant groups with
+   * {@code VARIANT(specVersion)} via {@code VariantLogicalTypeAnnotation}. We detect this by
+   * class name (reflection-safe) because the annotation class does not exist in older parquet
+   * versions (e.g. 1.13.1 used by pre-2.1 Flink profiles).
+   *
+   * <p><b>Structural fallback:</b> Spark 4.0.x writes variant groups <em>without</em> the
+   * annotation (plain metadata + value binary fields). Until Hudi moves to Spark 4.1+ (which
+   * annotates on write), we fall back to structural matching: exactly two required binary
+   * fields named {@code metadata} and {@code value}.
    */
-  public static boolean isVariantGroup(GroupType groupType) {
-    if (!groupType.containsField(HoodieSchema.Variant.VARIANT_METADATA_FIELD)
+  public static boolean isVariantGroup(GroupType groupType, LogicalTypeAnnotation logicalType) {
+    if (hasVariantAnnotation(logicalType)) {
+      return true;
+    }
+    return isVariantByStructure(groupType);
+  }
+
+  /**
+   * Checks whether the group carries the Parquet {@code VARIANT} logical type annotation.
+   * Uses class-name matching so this compiles against parquet-java versions that predate the
+   * {@code VariantLogicalTypeAnnotation} class (< 1.15.2).
+   */
+  static boolean hasVariantAnnotation(LogicalTypeAnnotation logicalType) {
+    return logicalType != null
+        && logicalType.getClass().getSimpleName().equals("VariantLogicalTypeAnnotation");
+  }
+
+  /**
+   * Structural fallback for files written without the {@code VARIANT} annotation (e.g. Spark
+   * 4.0.x, Hudi Flink writer pre-annotation). Matches exactly two binary fields named
+   * {@code metadata} and {@code value}.
+   */
+  static boolean isVariantByStructure(GroupType groupType) {
+    if (groupType.getFieldCount() != 2
+        || !groupType.containsField(HoodieSchema.Variant.VARIANT_METADATA_FIELD)
         || !groupType.containsField(HoodieSchema.Variant.VARIANT_VALUE_FIELD)) {
       return false;
     }
@@ -370,6 +404,14 @@ public class ParquetSchemaConverter {
         && metadataField.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.BINARY
         && valueField.isPrimitive()
         && valueField.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.BINARY;
+  }
+
+  /**
+   * Checks whether a variant group contains a {@code typed_value} field, indicating a shredded
+   * layout. Called only after {@link #isVariantGroup} returns true.
+   */
+  static boolean isShreddedVariant(GroupType groupType) {
+    return groupType.containsField(HoodieSchema.Variant.VARIANT_TYPED_VALUE_FIELD);
   }
 
 }

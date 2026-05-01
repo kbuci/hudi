@@ -18,6 +18,8 @@
 
 package org.apache.hudi.io.storage.row.parquet;
 
+import org.apache.hudi.util.HoodieSchemaConverter;
+
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.types.DataType;
 import org.apache.flink.table.types.logical.ArrayType;
@@ -27,25 +29,29 @@ import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.DoubleType;
 import org.apache.flink.table.types.logical.FloatType;
 import org.apache.flink.table.types.logical.IntType;
+import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.MapType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.SmallIntType;
 import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.table.types.logical.TinyIntType;
 import org.apache.flink.table.types.logical.VarCharType;
+import org.apache.parquet.schema.GroupType;
+import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.PrimitiveType;
+import org.apache.parquet.schema.Type;
+import org.apache.parquet.schema.Types;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collections;
-
-import org.apache.hudi.util.HoodieSchemaConverter;
-
-import org.apache.flink.table.types.logical.LogicalType;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -226,20 +232,21 @@ public class TestParquetSchemaConverter {
     assertThat(messageType.toString(), is(expected));
   }
 
+  /**
+   * Structural fallback: Parquet group with metadata + value binary fields (no VARIANT annotation).
+   * Covers files written by Spark 4.0.x which does not annotate variant groups.
+   */
   @Test
-  void testVariantParquetRead() {
-    org.apache.parquet.schema.MessageType variantParquet = new org.apache.parquet.schema.MessageType(
+  void testVariantParquetReadStructuralFallback() {
+    MessageType variantParquet = new MessageType(
         "test",
-        org.apache.parquet.schema.Types.primitive(
-            org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT32,
-            org.apache.parquet.schema.Type.Repetition.REQUIRED).named("id"),
-        org.apache.parquet.schema.Types.buildGroup(org.apache.parquet.schema.Type.Repetition.REQUIRED)
-            .addField(org.apache.parquet.schema.Types.primitive(
-                org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
-                org.apache.parquet.schema.Type.Repetition.REQUIRED).named("metadata"))
-            .addField(org.apache.parquet.schema.Types.primitive(
-                org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
-                org.apache.parquet.schema.Type.Repetition.REQUIRED).named("value"))
+        Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
+            Type.Repetition.REQUIRED).named("id"),
+        Types.buildGroup(Type.Repetition.REQUIRED)
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("metadata"))
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("value"))
             .named("data"));
 
     if (HoodieSchemaConverter.tryCreateVariantDataType() != null) {
@@ -255,22 +262,19 @@ public class TestParquetSchemaConverter {
   }
 
   @Test
-  void testNestedVariantInArrayParquetRead() {
-    org.apache.parquet.schema.MessageType nestedVariantParquet = new org.apache.parquet.schema.MessageType(
+  void testNestedVariantInArrayStructuralFallback() {
+    MessageType nestedVariantParquet = new MessageType(
         "test",
-        org.apache.parquet.schema.Types.primitive(
-            org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.INT32,
-            org.apache.parquet.schema.Type.Repetition.REQUIRED).named("id"),
-        org.apache.parquet.schema.Types.buildGroup(org.apache.parquet.schema.Type.Repetition.OPTIONAL)
-            .as(org.apache.parquet.schema.LogicalTypeAnnotation.listType())
-            .addField(org.apache.parquet.schema.Types.repeatedGroup()
-                .addField(org.apache.parquet.schema.Types.buildGroup(org.apache.parquet.schema.Type.Repetition.OPTIONAL)
-                    .addField(org.apache.parquet.schema.Types.primitive(
-                        org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
-                        org.apache.parquet.schema.Type.Repetition.REQUIRED).named("metadata"))
-                    .addField(org.apache.parquet.schema.Types.primitive(
-                        org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName.BINARY,
-                        org.apache.parquet.schema.Type.Repetition.REQUIRED).named("value"))
+        Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
+            Type.Repetition.REQUIRED).named("id"),
+        Types.buildGroup(Type.Repetition.OPTIONAL)
+            .as(LogicalTypeAnnotation.listType())
+            .addField(Types.repeatedGroup()
+                .addField(Types.buildGroup(Type.Repetition.OPTIONAL)
+                    .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                        Type.Repetition.REQUIRED).named("metadata"))
+                    .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                        Type.Repetition.REQUIRED).named("value"))
                     .named("element"))
                 .named("list"))
             .named("variants"));
@@ -287,6 +291,94 @@ public class TestParquetSchemaConverter {
           UnsupportedOperationException.class,
           () -> ParquetSchemaConverter.convertToRowType(nestedVariantParquet));
       assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
+    }
+  }
+
+  /**
+   * Tests that {@link ParquetSchemaConverter#hasVariantAnnotation} correctly detects
+   * the VARIANT annotation when parquet-java 1.15.2+ is on the classpath, and returns
+   * false otherwise.
+   */
+  @Test
+  void testHasVariantAnnotation() {
+    assertFalse(ParquetSchemaConverter.hasVariantAnnotation(null));
+    assertFalse(ParquetSchemaConverter.hasVariantAnnotation(LogicalTypeAnnotation.stringType()));
+    assertFalse(ParquetSchemaConverter.hasVariantAnnotation(LogicalTypeAnnotation.listType()));
+
+    LogicalTypeAnnotation variantAnnotation = tryCreateVariantAnnotation();
+    if (variantAnnotation != null) {
+      assertTrue(ParquetSchemaConverter.hasVariantAnnotation(variantAnnotation));
+    }
+  }
+
+  /**
+   * Tests that an annotated shredded variant group (VARIANT annotation + typed_value field)
+   * throws. Only runs when parquet-java 1.15.2+ provides VariantLogicalTypeAnnotation.
+   */
+  @Test
+  void testAnnotatedShreddedVariantThrows() {
+    LogicalTypeAnnotation variantAnnotation = tryCreateVariantAnnotation();
+    if (variantAnnotation == null) {
+      // parquet-java version doesn't support VARIANT annotation; shredded groups without
+      // annotation are treated as generic ROW (3 fields, structural check won't match).
+      return;
+    }
+
+    MessageType shreddedVariantParquet = new MessageType(
+        "test",
+        Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
+            Type.Repetition.REQUIRED).named("id"),
+        new GroupType(Type.Repetition.REQUIRED, "data", variantAnnotation,
+            Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("metadata"),
+            Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.OPTIONAL).named("value"),
+            Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.OPTIONAL).named("typed_value")));
+
+    UnsupportedOperationException ex = assertThrows(
+        UnsupportedOperationException.class,
+        () -> ParquetSchemaConverter.convertToRowType(shreddedVariantParquet));
+    assertTrue(ex.getMessage().contains("Shredded Variant is not supported"));
+    assertTrue(ex.getMessage().contains("typed_value"));
+  }
+
+  /**
+   * Unannotated group with metadata + value + typed_value (3 fields) does not match the
+   * structural fallback (which requires exactly 2 fields), so it is treated as a generic ROW.
+   */
+  @Test
+  void testUnannotatedShreddedGroupTreatedAsRow() {
+    MessageType shreddedNoAnnotation = new MessageType(
+        "test",
+        Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
+            Type.Repetition.REQUIRED).named("id"),
+        Types.buildGroup(Type.Repetition.REQUIRED)
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("metadata"))
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("value"))
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
+                Type.Repetition.OPTIONAL).named("typed_value"))
+            .named("data"));
+
+    RowType rowType = ParquetSchemaConverter.convertToRowType(shreddedNoAnnotation);
+    assertEquals(2, rowType.getFieldCount());
+    assertEquals("ROW", rowType.getTypeAt(1).getTypeRoot().name());
+  }
+
+  /**
+   * Tries to create a {@code VariantLogicalTypeAnnotation} via reflection.
+   * Returns null if the class is not on the classpath (parquet-java < 1.15.2).
+   */
+  private static LogicalTypeAnnotation tryCreateVariantAnnotation() {
+    try {
+      Method variantType = LogicalTypeAnnotation.class.getMethod("variantType", byte.class);
+      return (LogicalTypeAnnotation) variantType.invoke(null, (byte) 1);
+    } catch (NoSuchMethodException e) {
+      return null;
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to create VariantLogicalTypeAnnotation via reflection", e);
     }
   }
 }
