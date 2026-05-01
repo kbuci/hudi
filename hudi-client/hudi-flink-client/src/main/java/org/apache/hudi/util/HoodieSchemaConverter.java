@@ -52,32 +52,24 @@ import java.util.stream.Collectors;
  */
 public class HoodieSchemaConverter {
 
-  /**
-   * Cached Flink 2.1+ {@code VariantType} no-arg constructor, resolved once via reflection.
-   * {@code null} means not yet attempted; after the first attempt, holds the constructor
-   * on success or remains {@code null} with {@code variantTypeResolved == true} on failure.
-   */
-  private static volatile Constructor<?> variantTypeCtor;
-  private static volatile boolean variantTypeResolved;
+  private static Constructor<?> variantTypeCtor;
+  private static boolean variantTypeResolved;
 
   /**
    * Returns a Flink {@code VariantType} DataType if the runtime Flink version is 2.1+,
    * or {@code null} if the class is not on the classpath (pre-2.1 Flink).
    * The reflection result is cached so the class lookup happens at most once per JVM.
+   * Only called during schema conversion (cold path), never per row.
    */
-  public static DataType tryCreateVariantDataType() {
+  public static synchronized DataType tryCreateVariantDataType() {
     if (!variantTypeResolved) {
-      synchronized (HoodieSchemaConverter.class) {
-        if (!variantTypeResolved) {
-          try {
-            Class<?> clazz = Class.forName("org.apache.flink.table.types.logical.VariantType");
-            variantTypeCtor = clazz.getConstructor();
-          } catch (ClassNotFoundException | NoSuchMethodException e) {
-            variantTypeCtor = null;
-          }
-          variantTypeResolved = true;
-        }
+      try {
+        Class<?> clazz = Class.forName("org.apache.flink.table.types.logical.VariantType");
+        variantTypeCtor = clazz.getConstructor();
+      } catch (ClassNotFoundException | NoSuchMethodException e) {
+        variantTypeCtor = null;
       }
+      variantTypeResolved = true;
     }
     if (variantTypeCtor == null) {
       return null;
