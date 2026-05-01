@@ -51,6 +51,11 @@ public class ITTestVariantCrossEngineCompatibility {
   @TempDir
   Path tempDir;
 
+  /**
+   * Builds the DDL to create a Hudi table pointing to Spark-written data.
+   * In Flink, Variant is represented as ROW<metadata BYTES, value BYTES>.
+   * NOTE: value is a reserved keyword and must be backtick-escaped.
+   */
   private String createVariantTableDdl(String tablePath, String tableType) {
     return String.format(
         "CREATE TABLE variant_table ("
@@ -89,9 +94,11 @@ public class ITTestVariantCrossEngineCompatibility {
       return;
     }
 
+    // Query the table to verify Flink can read the data
     TableResult result = tableEnv.executeSql("SELECT id, name, v, ts FROM variant_table ORDER BY id");
     List<Row> rows = CollectionUtil.iteratorToList(result.collect());
 
+    // Verify we got the expected row (after Spark 4.0 delete operation, only 1 row remains)
     assertEquals(1, rows.size(), "Should have 1 row after delete operation in Spark 4.0 (" + testDescription + ")");
 
     Row row = rows.get(0);
@@ -99,12 +106,14 @@ public class ITTestVariantCrossEngineCompatibility {
     assertEquals("row1", row.getField(1), "Second column should be name=row1");
     assertEquals(1000L, row.getField(3), "Fourth column should be ts=1000");
 
+    // Verify the variant column is readable as a ROW with binary fields
     Row variantRow = (Row) row.getField(2);
     assertNotNull(variantRow, "Variant column should not be null");
 
     byte[] metadataBytes = (byte[]) variantRow.getField(0);
     byte[] valueBytes = (byte[]) variantRow.getField(1);
 
+    // Expected byte values from Spark 4.0 Variant representation: {"updated": true, "new_field": 123}
     byte[] expectedValueBytes = new byte[]{0x02, 0x02, 0x01, 0x00, 0x01, 0x00, 0x03, 0x04, 0x0C, 0x7B};
     byte[] expectedMetadataBytes = new byte[]{0x01, 0x02, 0x00, 0x07, 0x10, 0x75, 0x70, 0x64, 0x61,
         0x74, 0x65, 0x64, 0x6E, 0x65, 0x77, 0x5F, 0x66, 0x69, 0x65, 0x6C, 0x64};
@@ -126,6 +135,7 @@ public class ITTestVariantCrossEngineCompatibility {
 
   @Test
   public void testFlinkReadSparkVariantCOWTable() throws Exception {
+    // Test that Flink can read a COW table with Variant data written by Spark 4.0
     Path cowTargetDir = tempDir.resolve("cow");
     HoodieTestUtils.extractZipToDirectory("variant_backward_compat/variant_cow.zip", cowTargetDir, getClass());
     String cowPath = cowTargetDir.resolve("variant_cow").toString();
@@ -134,6 +144,7 @@ public class ITTestVariantCrossEngineCompatibility {
 
   @Test
   public void testFlinkReadSparkVariantMORTableWithAvro() throws Exception {
+    // Test that Flink can read a MOR table with AVRO record type and Variant data written by Spark 4.0
     Path morAvroTargetDir = tempDir.resolve("mor_avro");
     HoodieTestUtils.extractZipToDirectory("variant_backward_compat/variant_mor_avro.zip", morAvroTargetDir, getClass());
     String morAvroPath = morAvroTargetDir.resolve("variant_mor_avro").toString();
@@ -142,6 +153,7 @@ public class ITTestVariantCrossEngineCompatibility {
 
   @Test
   public void testFlinkReadSparkVariantMORTableWithSpark() throws Exception {
+    // Test that Flink can read a MOR table with SPARK record type and Variant data written by Spark 4.0
     Path morSparkTargetDir = tempDir.resolve("mor_spark");
     HoodieTestUtils.extractZipToDirectory("variant_backward_compat/variant_mor_spark.zip", morSparkTargetDir, getClass());
     String morSparkPath = morSparkTargetDir.resolve("variant_mor_spark").toString();

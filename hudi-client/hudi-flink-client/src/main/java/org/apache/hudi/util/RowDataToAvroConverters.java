@@ -285,6 +285,10 @@ public class RowDataToAvroConverters {
    *
    * <p>Reflection is required because the {@code Variant} interface and {@code BinaryVariant}
    * class only exist in Flink 2.1+, while this module compiles against Flink 1.20.
+   *
+   * <p>No shredded-variant check is needed here: {@code HoodieSchemaConverter.convertVariant()}
+   * already rejects shredded variants before a Flink type or converter is ever constructed,
+   * and Flink 2.1 itself only supports unshredded variants (FLIP-521).
    */
   private static RowDataToAvroConverter createVariantConverter() {
     return new RowDataToAvroConverter() {

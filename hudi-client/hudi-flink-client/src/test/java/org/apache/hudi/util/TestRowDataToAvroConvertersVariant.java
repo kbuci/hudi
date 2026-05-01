@@ -20,7 +20,6 @@ package org.apache.hudi.util;
 
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
-import org.apache.hudi.common.schema.HoodieSchemaType;
 
 import org.apache.avro.generic.GenericRecord;
 import org.apache.flink.table.data.GenericArrayData;
@@ -41,7 +40,6 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -49,35 +47,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Since this module compiles against Flink 1.20 (pre-2.1), native VariantType
  * is not available. Tests that require native Variant (e.g. createVariantConverter)
- * cannot run here. Instead we verify:
- * <ul>
- *   <li>ROW-based variant via the row converter still produces correct Avro records</li>
- *   <li>Shredded variant throws as expected</li>
- *   <li>Nested variant in arrays/maps works through the row converter path</li>
- * </ul>
+ * cannot run here. Instead we verify that the ROW-based variant path (used on
+ * pre-2.1 Flink) correctly produces Avro records, including nested variants in
+ * arrays and maps.
+ *
+ * <p>Shredded variant rejection is tested in
+ * {@link TestHoodieSchemaConverter#testShreddedVariantConversionThrows} — the
+ * guard lives in {@code HoodieSchemaConverter.convertVariant()} which runs before
+ * any converter is constructed.
  */
 public class TestRowDataToAvroConvertersVariant {
-
-  @Test
-  public void testShreddedVariantWriteThrows() {
-    RowType variantRowType = RowType.of(
-        new VarBinaryType(VarBinaryType.MAX_LENGTH),
-        new VarBinaryType(VarBinaryType.MAX_LENGTH));
-
-    RowDataToAvroConverters.RowDataToAvroConverter converter =
-        RowDataToAvroConverters.createConverter(variantRowType);
-
-    HoodieSchema.Variant shreddedSchema = HoodieSchema.createVariantShredded(
-        HoodieSchema.create(HoodieSchemaType.INT));
-
-    GenericRowData row = GenericRowData.of(
-        new byte[] {0x01}, new byte[] {0x02});
-
-    UnsupportedOperationException ex = assertThrows(
-        UnsupportedOperationException.class,
-        () -> converter.convert(shreddedSchema, row));
-    assertTrue(ex.getMessage().contains("Shredded Variant is not yet supported in Flink"));
-  }
 
   @Test
   public void testUnshreddedVariantWriteSucceeds() {
