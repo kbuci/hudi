@@ -39,10 +39,24 @@ import java.lang.reflect.Method;
  * copy rather than fetching from {@link RowData}.
  */
 public abstract class AbstractHoodieRowData implements RowData {
-  // Cached RowData.getVariant(int) method handle, resolved once.
-  // On Flink 2.1+ this resolves successfully; on pre-2.1 it stays null.
-  static volatile Method getVariantMethod;
-  static volatile boolean getVariantResolved;
+  /**
+   * Lazy holder for the {@code RowData.getVariant(int)} method handle.
+   * The JVM guarantees thread-safe, one-time class initialization with no per-access cost.
+   * On Flink 2.1+ this resolves successfully; on pre-2.1 it stays null.
+   */
+  private static final class GetVariantHolder {
+    static final Method METHOD;
+
+    static {
+      Method m;
+      try {
+        m = RowData.class.getMethod("getVariant", int.class);
+      } catch (NoSuchMethodException e) {
+        m = null;
+      }
+      METHOD = m;
+    }
+  }
 
   private final String[] metaColumns;
   protected final RowData row;
@@ -185,7 +199,7 @@ public abstract class AbstractHoodieRowData implements RowData {
   }
 
   static Variant delegateGetVariant(RowData target, int pos) {
-    Method m = resolveGetVariant();
+    Method m = GetVariantHolder.METHOD;
     if (m == null) {
       throw new UnsupportedOperationException(
           "Variant type requires Flink 2.1+. RowData.getVariant(int) not available.");
@@ -195,21 +209,5 @@ public abstract class AbstractHoodieRowData implements RowData {
     } catch (Exception e) {
       throw new RuntimeException("Failed to invoke RowData.getVariant(int)", e);
     }
-  }
-
-  private static Method resolveGetVariant() {
-    if (!getVariantResolved) {
-      synchronized (AbstractHoodieRowData.class) {
-        if (!getVariantResolved) {
-          try {
-            getVariantMethod = RowData.class.getMethod("getVariant", int.class);
-          } catch (NoSuchMethodException e) {
-            getVariantMethod = null;
-          }
-          getVariantResolved = true;
-        }
-      }
-    }
-    return getVariantMethod;
   }
 }
