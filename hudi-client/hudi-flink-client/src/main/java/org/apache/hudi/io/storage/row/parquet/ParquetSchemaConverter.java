@@ -202,8 +202,7 @@ public class ParquetSchemaConverter {
     for (int i = 0; i < rowType.getFieldCount(); i++) {
       String fieldName = rowType.getFieldNames().get(i);
       LogicalType fieldType = rowType.getTypeAt(i);
-      Type.Repetition repetition = fieldType.isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED;
-      types[i] = convertToParquetType(fieldName, fieldType, repetition);
+      types[i] = convertToParquetType(fieldName, fieldType, fieldType.isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED);
     }
     return new MessageType(name, types);
   }
@@ -323,12 +322,8 @@ public class ParquetSchemaConverter {
       case ROW:
         RowType rowType = (RowType) type;
         Types.GroupBuilder<GroupType> builder = Types.buildGroup(repetition);
-        for (int i = 0; i < rowType.getFieldCount(); i++) {
-          RowType.RowField field = rowType.getFields().get(i);
-          builder.addField(convertToParquetType(
-              field.getName(), field.getType(),
-              field.getType().isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED));
-        }
+        rowType.getFields().forEach(field -> builder
+            .addField(convertToParquetType(field.getName(), field.getType(), field.getType().isNullable() ? Type.Repetition.OPTIONAL : Type.Repetition.REQUIRED)));
         return builder.named(name);
       default:
         throw new UnsupportedOperationException("Unsupported type: " + type);
