@@ -60,6 +60,14 @@ public class ParquetSchemaConverter {
   static final String LIST_REPEATED_NAME = "list";
   static final String LIST_ELEMENT_NAME = "element";
 
+  // TODO: Accept an optional HoodieSchema parameter so that variant detection can be
+  //  schema-driven rather than relying on Parquet annotation / structural heuristics.
+  //  Spark's ParquetSchemaConverter only treats a group as variant when the *target catalog
+  //  schema* says the field is VariantType. Our Flink path currently infers the type from
+  //  the Parquet schema alone (annotation-primary + structural fallback), which could
+  //  theoretically mis-identify a ROW<metadata BINARY, value BINARY> as a variant.
+  //  The HoodieSchema is already available at the call site (HoodieRowDataParquetReader)
+  //  and could be threaded through convertToRowField to eliminate this ambiguity.
   public static RowType convertToRowType(MessageType messageType) {
     List<RowType.RowField> dataFields =
         messageType.asGroupType().getFields().stream()
