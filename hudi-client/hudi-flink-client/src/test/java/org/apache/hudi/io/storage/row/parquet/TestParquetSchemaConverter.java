@@ -18,6 +18,9 @@
 
 package org.apache.hudi.io.storage.row.parquet;
 
+import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.util.HoodieSchemaConverter;
 
 import org.apache.flink.table.api.DataTypes;
@@ -232,11 +235,13 @@ public class TestParquetSchemaConverter {
   }
 
   /**
-   * Structural fallback: Parquet group with metadata + value binary fields (no VARIANT annotation).
-   * Covers files written by Spark 4.0.x which does not annotate variant groups.
+   * Without a HoodieSchema or VARIANT annotation, a Parquet group with metadata + value
+   * binary fields must NOT be detected as a variant — it is just a regular ROW.
+   * This prevents the regression where pre-existing tables with ROW<metadata,value>
+   * would be misidentified.
    */
   @Test
-  void testVariantParquetReadStructuralFallback() {
+  void testUnannotatedVariantGroupWithoutSchemaTreatedAsRow() {
     MessageType variantParquet = new MessageType(
         "test",
         Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
@@ -248,20 +253,51 @@ public class TestParquetSchemaConverter {
                 Type.Repetition.REQUIRED).named("value"))
             .named("data"));
 
+    RowType rowType = ParquetSchemaConverter.convertToRowType(variantParquet);
+    assertEquals(2, rowType.getFieldCount());
+    assertEquals("ROW", rowType.getTypeAt(1).getTypeRoot().name());
+  }
+
+  /**
+   * With a HoodieSchema that declares a field as VARIANT, the Parquet group with
+   * metadata + value binary fields (no annotation) IS detected as a variant.
+   * This covers Spark 4.0.x files that lack the annotation.
+   */
+  @Test
+  void testUnannotatedVariantGroupWithSchemaDetectedAsVariant() {
+    MessageType variantParquet = new MessageType(
+        "test",
+        Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
+            Type.Repetition.REQUIRED).named("id"),
+        Types.buildGroup(Type.Repetition.REQUIRED)
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("metadata"))
+            .addField(Types.primitive(PrimitiveType.PrimitiveTypeName.BINARY,
+                Type.Repetition.REQUIRED).named("value"))
+            .named("data"));
+
+    HoodieSchema tableSchema = HoodieSchema.createRecord("test", null, null, Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("data", HoodieSchema.createVariant())));
+
     if (HoodieSchemaConverter.tryCreateVariantDataType() != null) {
-      RowType rowType = ParquetSchemaConverter.convertToRowType(variantParquet);
+      RowType rowType = ParquetSchemaConverter.convertToRowType(variantParquet, tableSchema);
       assertEquals(2, rowType.getFieldCount());
       assertEquals("VARIANT", rowType.getTypeAt(1).getTypeRoot().name());
     } else {
       UnsupportedOperationException ex = assertThrows(
           UnsupportedOperationException.class,
-          () -> ParquetSchemaConverter.convertToRowType(variantParquet));
+          () -> ParquetSchemaConverter.convertToRowType(variantParquet, tableSchema));
       assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
     }
   }
 
+  /**
+   * Nested variant in an array: without schema, the element group is a plain ROW;
+   * with a HoodieSchema declaring ARRAY<VARIANT>, schema-driven detection kicks in.
+   */
   @Test
-  void testNestedVariantInArrayStructuralFallback() {
+  void testNestedVariantInArraySchemaDriven() {
     MessageType nestedVariantParquet = new MessageType(
         "test",
         Types.primitive(PrimitiveType.PrimitiveTypeName.INT32,
@@ -278,8 +314,21 @@ public class TestParquetSchemaConverter {
                 .named("list"))
             .named("variants"));
 
+    // Without schema: element is treated as ROW, not VARIANT
+    RowType rowTypeNoSchema = ParquetSchemaConverter.convertToRowType(nestedVariantParquet);
+    assertNotNull(rowTypeNoSchema);
+    assertEquals(2, rowTypeNoSchema.getFieldCount());
+    LogicalType variantsTypeNoSchema = rowTypeNoSchema.getTypeAt(1);
+    assertInstanceOf(ArrayType.class, variantsTypeNoSchema);
+    assertEquals("ROW", ((ArrayType) variantsTypeNoSchema).getElementType().getTypeRoot().name());
+
+    // With schema declaring ARRAY<VARIANT>: element is detected as VARIANT
+    HoodieSchema tableSchema = HoodieSchema.createRecord("test", null, null, Arrays.asList(
+        HoodieSchemaField.of("id", HoodieSchema.create(HoodieSchemaType.INT)),
+        HoodieSchemaField.of("variants", HoodieSchema.createArray(HoodieSchema.createVariant()))));
+
     if (HoodieSchemaConverter.tryCreateVariantDataType() != null) {
-      RowType rowType = ParquetSchemaConverter.convertToRowType(nestedVariantParquet);
+      RowType rowType = ParquetSchemaConverter.convertToRowType(nestedVariantParquet, tableSchema);
       assertNotNull(rowType);
       assertEquals(2, rowType.getFieldCount());
       LogicalType variantsType = rowType.getTypeAt(1);
@@ -288,7 +337,7 @@ public class TestParquetSchemaConverter {
     } else {
       UnsupportedOperationException ex = assertThrows(
           UnsupportedOperationException.class,
-          () -> ParquetSchemaConverter.convertToRowType(nestedVariantParquet));
+          () -> ParquetSchemaConverter.convertToRowType(nestedVariantParquet, tableSchema));
       assertTrue(ex.getMessage().contains("VARIANT type is only supported in Flink 2.1+"));
     }
   }
@@ -345,8 +394,8 @@ public class TestParquetSchemaConverter {
   }
 
   /**
-   * Unannotated group with metadata + value + typed_value (3 fields) does not match the
-   * structural fallback (which requires exactly 2 fields), so it is treated as a generic ROW.
+   * Unannotated group with metadata + value + typed_value (3 fields) is treated as a generic
+   * ROW when no annotation or schema hint is present.
    */
   @Test
   void testUnannotatedShreddedGroupTreatedAsRow() {

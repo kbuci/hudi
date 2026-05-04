@@ -19,6 +19,8 @@
 package org.apache.hudi.io.storage.row.parquet;
 
 import org.apache.hudi.common.schema.HoodieSchema;
+import org.apache.hudi.common.schema.HoodieSchemaField;
+import org.apache.hudi.common.schema.HoodieSchemaType;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.util.HoodieSchemaConverter;
 
@@ -41,6 +43,7 @@ import org.apache.parquet.schema.PrimitiveType;
 import org.apache.parquet.schema.Type;
 import org.apache.parquet.schema.Types;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -60,23 +63,58 @@ public class ParquetSchemaConverter {
   static final String LIST_REPEATED_NAME = "list";
   static final String LIST_ELEMENT_NAME = "element";
 
-  // TODO: Accept an optional HoodieSchema parameter so that variant detection can be
-  //  schema-driven rather than relying on Parquet annotation / structural heuristics.
-  //  Spark's ParquetSchemaConverter only treats a group as variant when the *target catalog
-  //  schema* says the field is VariantType. Our Flink path currently infers the type from
-  //  the Parquet schema alone (annotation-primary + structural fallback), which could
-  //  theoretically mis-identify a ROW<metadata BINARY, value BINARY> as a variant.
-  //  The HoodieSchema is already available at the call site (HoodieRowDataParquetReader)
-  //  and could be threaded through convertToRowField to eliminate this ambiguity.
+  /**
+   * Converts a Parquet schema to a Flink RowType without a HoodieSchema reference.
+   * Variant detection relies solely on the Parquet {@code VARIANT} annotation — no structural
+   * fallback is applied, so a plain ROW with fields named metadata/value will NOT be
+   * mis-identified as a variant.
+   *
+   * <p>Prefer {@link #convertToRowType(MessageType, HoodieSchema)} when a HoodieSchema is
+   * available, which enables schema-driven variant detection (including Spark 4.0 files
+   * that lack the annotation).
+   */
   public static RowType convertToRowType(MessageType messageType) {
-    List<RowType.RowField> dataFields =
-        messageType.asGroupType().getFields().stream()
-            .map(ParquetSchemaConverter::convertToRowField)
-            .collect(Collectors.toList());
+    return convertToRowType(messageType, null);
+  }
+
+  /**
+   * Converts a Parquet schema to a Flink RowType, using the HoodieSchema to drive variant
+   * detection. A Parquet group is treated as a variant only when:
+   * <ul>
+   *   <li>the Parquet group carries the {@code VARIANT} logical type annotation, OR</li>
+   *   <li>the corresponding HoodieSchema field is {@link HoodieSchemaType#VARIANT} (covers
+   *       Spark 4.0 files that lack the annotation)</li>
+   * </ul>
+   *
+   * @param messageType Parquet schema
+   * @param hoodieSchema HoodieSchema for the table, or null to use annotation-only detection
+   */
+  public static RowType convertToRowType(MessageType messageType, HoodieSchema hoodieSchema) {
+    List<RowType.RowField> dataFields = new ArrayList<>();
+    for (Type field : messageType.getFields()) {
+      HoodieSchema fieldSchema = resolveFieldSchema(hoodieSchema, field.getName());
+      dataFields.add(convertToRowField(field, fieldSchema));
+    }
     return new RowType(dataFields);
   }
 
+  /**
+   * Looks up the HoodieSchema for a named field within a record schema.
+   * Returns null if the record schema is null or does not contain the field.
+   */
+  static HoodieSchema resolveFieldSchema(HoodieSchema recordSchema, String fieldName) {
+    if (recordSchema == null || recordSchema.getType() != HoodieSchemaType.RECORD) {
+      return null;
+    }
+    org.apache.hudi.common.util.Option<HoodieSchemaField> field = recordSchema.getField(fieldName);
+    return field.isPresent() ? field.get().schema() : null;
+  }
+
   public static RowType.RowField convertToRowField(Type parquetType) {
+    return convertToRowField(parquetType, null);
+  }
+
+  static RowType.RowField convertToRowField(Type parquetType, HoodieSchema fieldSchema) {
     LogicalTypeAnnotation logicalType = parquetType.getLogicalTypeAnnotation();
     DataType dataType;
 
@@ -155,17 +193,21 @@ public class ParquetSchemaConverter {
       return new RowType.RowField(parquetType.getName(), dataType.getLogicalType());
     } else {
       GroupType groupType = parquetType.asGroupType();
+      HoodieSchemaType schemaHint = fieldSchema != null ? fieldSchema.getNonNullType().getType() : null;
       if (logicalType instanceof LogicalTypeAnnotation.ListLogicalTypeAnnotation) {
-        dataType = DataTypes.of(new ArrayType(convertToRowField(parquetListElementType(groupType)).getType()));
+        HoodieSchema elementSchema = schemaHint == HoodieSchemaType.ARRAY
+            ? fieldSchema.getNonNullType().getElementType() : null;
+        dataType = DataTypes.of(new ArrayType(
+            convertToRowField(parquetListElementType(groupType), elementSchema).getType()));
       } else if (logicalType instanceof LogicalTypeAnnotation.MapLogicalTypeAnnotation) {
+        HoodieSchema valueSchema = schemaHint == HoodieSchemaType.MAP
+            ? fieldSchema.getNonNullType().getValueType() : null;
         Pair<Type, Type> keyValueType = parquetMapKeyValueType(groupType);
-        // Since parquet does not support nullable key, when converting
-        // back to DataType, set as nullable by default.
         dataType = DataTypes.of(
             new MapType(
-                convertToRowField(keyValueType.getLeft()).getType().copy(true),
-                convertToRowField(keyValueType.getRight()).getType()));
-      } else if (isVariantGroup(groupType, logicalType)) {
+                convertToRowField(keyValueType.getLeft(), null).getType().copy(true),
+                convertToRowField(keyValueType.getRight(), valueSchema).getType()));
+      } else if (isVariantGroup(groupType, logicalType, schemaHint)) {
         if (isShreddedVariant(groupType)) {
           throw new UnsupportedOperationException(
               "Shredded Variant is not supported in Flink. "
@@ -181,10 +223,11 @@ public class ParquetSchemaConverter {
         }
         dataType = variantDataType.notNull();
       } else {
+        HoodieSchema recordSchema = schemaHint == HoodieSchemaType.RECORD ? fieldSchema.getNonNullType() : null;
         dataType =
             DataTypes.of(new RowType(
                 groupType.getFields().stream()
-                    .map(ParquetSchemaConverter::convertToRowField)
+                    .map(f -> convertToRowField(f, resolveFieldSchema(recordSchema, f.getName())))
                     .collect(Collectors.toList())));
       }
     }
@@ -363,21 +406,22 @@ public class ParquetSchemaConverter {
   /**
    * Detects whether a Parquet group represents a Variant (shredded or unshredded).
    *
-   * <p><b>Primary check — annotation:</b> parquet-java 1.15.2+ annotates variant groups with
-   * {@code VARIANT(specVersion)} via {@code VariantLogicalTypeAnnotation}. We detect this by
-   * class name (reflection-safe) because the annotation class does not exist in older parquet
-   * versions (e.g. 1.13.1 used by pre-2.1 Flink profiles).
-   *
-   * <p><b>Structural fallback:</b> Spark 4.0.x writes variant groups <em>without</em> the
-   * annotation (plain metadata + value binary fields). Until Hudi moves to Spark 4.1+ (which
-   * annotates on write), we fall back to structural matching: exactly two required binary
-   * fields named {@code metadata} and {@code value}.
+   * <p>Detection uses three signals, checked in priority order:
+   * <ol>
+   *   <li><b>Annotation:</b> parquet-java 1.15.2+ annotates variant groups with
+   *       {@code VARIANT(specVersion)}. Detected by class name (reflection-safe).</li>
+   *   <li><b>Schema hint:</b> if the HoodieSchema says the field is {@code VARIANT},
+   *       we trust it — this covers Spark 4.0 files that lack the annotation.</li>
+   *   <li><b>No structural guessing:</b> without an annotation or schema hint, a group
+   *       is never treated as variant, even if its fields are named metadata/value.</li>
+   * </ol>
    */
-  public static boolean isVariantGroup(GroupType groupType, LogicalTypeAnnotation logicalType) {
+  public static boolean isVariantGroup(
+      GroupType groupType, LogicalTypeAnnotation logicalType, HoodieSchemaType schemaHint) {
     if (hasVariantAnnotation(logicalType)) {
       return true;
     }
-    return isVariantByStructure(groupType);
+    return schemaHint == HoodieSchemaType.VARIANT;
   }
 
   /**
@@ -388,25 +432,6 @@ public class ParquetSchemaConverter {
   static boolean hasVariantAnnotation(LogicalTypeAnnotation logicalType) {
     return logicalType != null
         && logicalType.getClass().getSimpleName().equals("VariantLogicalTypeAnnotation");
-  }
-
-  /**
-   * Structural fallback for files written without the {@code VARIANT} annotation (e.g. Spark
-   * 4.0.x, Hudi Flink writer pre-annotation). Matches exactly two binary fields named
-   * {@code metadata} and {@code value}.
-   */
-  static boolean isVariantByStructure(GroupType groupType) {
-    if (groupType.getFieldCount() != 2
-        || !groupType.containsField(HoodieSchema.Variant.VARIANT_METADATA_FIELD)
-        || !groupType.containsField(HoodieSchema.Variant.VARIANT_VALUE_FIELD)) {
-      return false;
-    }
-    Type metadataField = groupType.getType(HoodieSchema.Variant.VARIANT_METADATA_FIELD);
-    Type valueField = groupType.getType(HoodieSchema.Variant.VARIANT_VALUE_FIELD);
-    return metadataField.isPrimitive()
-        && metadataField.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.BINARY
-        && valueField.isPrimitive()
-        && valueField.asPrimitiveType().getPrimitiveTypeName() == PrimitiveType.PrimitiveTypeName.BINARY;
   }
 
   /**

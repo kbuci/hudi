@@ -58,12 +58,24 @@ public class HoodieRowDataParquetReader implements HoodieFileReader<RowData>  {
   private final StoragePath path;
   private HoodieSchema fileSchema;
   private DataType fileRowType;
+  private HoodieSchema tableSchema;
   private final List<ClosableIterator<RowData>> readerIterators = new ArrayList<>();
 
   public HoodieRowDataParquetReader(HoodieStorage storage, StoragePath path) {
     this.storage = storage;
     this.parquetUtils = (ParquetUtils) HoodieIOFactory.getIOFactory(storage).getFileFormatUtils(HoodieFileFormat.PARQUET);
     this.path = path;
+  }
+
+  /**
+   * Sets the table-level HoodieSchema to enable schema-driven variant detection when
+   * converting Parquet types. Without this, variant detection relies solely on the Parquet
+   * VARIANT annotation (parquet-java 1.15.2+). With it, Spark 4.0 files that lack the
+   * annotation are also correctly handled.
+   */
+  public HoodieRowDataParquetReader withTableSchema(HoodieSchema tableSchema) {
+    this.tableSchema = tableSchema;
+    return this;
   }
 
   @Override
@@ -117,7 +129,7 @@ public class HoodieRowDataParquetReader implements HoodieFileReader<RowData>  {
       // Avro only supports representing Decimals as fixed byte array
       // and therefore if we convert to Avro directly we'll lose logical type-info.
       MessageType messageType = parquetUtils.readMessageType(storage, path);
-      RowType rowType = ParquetSchemaConverter.convertToRowType(messageType);
+      RowType rowType = ParquetSchemaConverter.convertToRowType(messageType, tableSchema);
       fileRowType = DataTypes.of(rowType);
     }
     return fileRowType;
