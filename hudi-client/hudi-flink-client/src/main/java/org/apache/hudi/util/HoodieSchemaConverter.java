@@ -41,7 +41,7 @@ import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.TimeType;
 import org.apache.flink.table.types.logical.TimestampType;
 
-import java.lang.reflect.Constructor;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -52,34 +52,30 @@ import java.util.stream.Collectors;
  */
 public class HoodieSchemaConverter {
 
-  private static Constructor<?> variantTypeCtor;
-  private static boolean variantTypeResolved;
+  private static final class VariantTypeHolder {
+    static final DataType VARIANT_DATA_TYPE = resolveVariantDataType();
+
+    private static DataType resolveVariantDataType() {
+      try {
+        Class<?> clazz = Class.forName("org.apache.flink.table.types.logical.VariantType");
+        LogicalType variantType = (LogicalType) clazz.getConstructor().newInstance();
+        return DataTypes.of(variantType);
+      } catch (ClassNotFoundException | NoSuchMethodException e) {
+        return null;
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to instantiate Flink VariantType via reflection", e);
+      }
+    }
+  }
 
   /**
    * Returns a Flink {@code VariantType} DataType if the runtime Flink version is 2.1+,
    * or {@code null} if the class is not on the classpath (pre-2.1 Flink).
-   * The reflection result is cached so the class lookup happens at most once per JVM.
-   * Only called during schema conversion (cold path), never per row.
+   * Uses the lazy-holder idiom: the class is loaded at most once per JVM, with
+   * thread safety guaranteed by the JVM class loading mechanism.
    */
-  public static synchronized DataType tryCreateVariantDataType() {
-    if (!variantTypeResolved) {
-      try {
-        Class<?> clazz = Class.forName("org.apache.flink.table.types.logical.VariantType");
-        variantTypeCtor = clazz.getConstructor();
-      } catch (ClassNotFoundException | NoSuchMethodException e) {
-        variantTypeCtor = null;
-      }
-      variantTypeResolved = true;
-    }
-    if (variantTypeCtor == null) {
-      return null;
-    }
-    try {
-      LogicalType variantType = (LogicalType) variantTypeCtor.newInstance();
-      return DataTypes.of(variantType);
-    } catch (Exception e) {
-      throw new RuntimeException("Failed to instantiate Flink VariantType via reflection", e);
-    }
+  public static DataType tryCreateVariantDataType() {
+    return VariantTypeHolder.VARIANT_DATA_TYPE;
   }
 
   /**

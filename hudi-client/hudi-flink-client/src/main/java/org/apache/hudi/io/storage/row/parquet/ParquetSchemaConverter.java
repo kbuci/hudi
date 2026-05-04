@@ -21,6 +21,7 @@ package org.apache.hudi.io.storage.row.parquet;
 import org.apache.hudi.common.schema.HoodieSchema;
 import org.apache.hudi.common.schema.HoodieSchemaField;
 import org.apache.hudi.common.schema.HoodieSchemaType;
+import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.util.HoodieSchemaConverter;
 
@@ -106,7 +107,7 @@ public class ParquetSchemaConverter {
     if (recordSchema == null || recordSchema.getType() != HoodieSchemaType.RECORD) {
       return null;
     }
-    org.apache.hudi.common.util.Option<HoodieSchemaField> field = recordSchema.getField(fieldName);
+    Option<HoodieSchemaField> field = recordSchema.getField(fieldName);
     return field.isPresent() ? field.get().schema() : null;
   }
 
@@ -207,7 +208,7 @@ public class ParquetSchemaConverter {
             new MapType(
                 convertToRowField(keyValueType.getLeft(), null).getType().copy(true),
                 convertToRowField(keyValueType.getRight(), valueSchema).getType()));
-      } else if (isVariantGroup(groupType, logicalType, schemaHint)) {
+      } else if (isVariantGroup(logicalType, schemaHint)) {
         if (isShreddedVariant(groupType)) {
           throw new UnsupportedOperationException(
               "Shredded Variant is not supported in Flink. "
@@ -416,8 +417,7 @@ public class ParquetSchemaConverter {
    *       is never treated as variant, even if its fields are named metadata/value.</li>
    * </ol>
    */
-  public static boolean isVariantGroup(
-      GroupType groupType, LogicalTypeAnnotation logicalType, HoodieSchemaType schemaHint) {
+  public static boolean isVariantGroup(LogicalTypeAnnotation logicalType, HoodieSchemaType schemaHint) {
     if (hasVariantAnnotation(logicalType)) {
       return true;
     }
