@@ -221,7 +221,7 @@ public class ParquetSchemaConverter {
               "VARIANT type is only supported in Flink 2.1+. "
                   + "VariantType class not found on the classpath.");
         }
-        dataType = variantDataType.notNull();
+        dataType = variantDataType;
       } else {
         HoodieSchema recordSchema = schemaHint == HoodieSchemaType.RECORD ? fieldSchema.getNonNullType() : null;
         dataType =
